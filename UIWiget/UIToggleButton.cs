@@ -1,11 +1,10 @@
-// UIToggleButton.cs
+// Dateiname: UIToggleButton.cs (Korrigiert)
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
 
 namespace YourGame.UI.Widgets
 {
-    // Ein Button, der einen "Checked"-Zustand haben kann
     public class UIToggleButton : UIButton
     {
         [Header("Toggle Settings")]
@@ -28,6 +27,10 @@ namespace YourGame.UI.Widgets
         protected override void Awake()
         {
             base.Awake();
+
+            // KORREKTUR: Event initialisieren.
+            if (OnCheckChanged == null) OnCheckChanged = new UnityEvent<bool>();
+
             UpdateCheckmark();
         }
 

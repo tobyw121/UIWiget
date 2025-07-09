@@ -1,4 +1,4 @@
-// Dateiname: UISlider.cs
+// Dateiname: UISlider.cs (Korrigiert)
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -14,7 +14,6 @@ namespace YourGame.UI.Widgets
 
         [Header("Slider Settings")]
         [SerializeField, Range(0f, 1f)] private float _value = 1f;
-
         public UnityEvent<float> OnValueChanged;
 
         private RectTransform _backgroundRect;
@@ -35,6 +34,10 @@ namespace YourGame.UI.Widgets
         protected override void Awake()
         {
             base.Awake();
+
+            // KORREKTUR: Event initialisieren.
+            if (OnValueChanged == null) OnValueChanged = new UnityEvent<float>();
+            
             _backgroundRect = GetComponent<RectTransform>();
             UpdateVisuals();
         }
@@ -51,7 +54,7 @@ namespace YourGame.UI.Widgets
         public override void OnPointerDown(PointerEventData eventData)
         {
             base.OnPointerDown(eventData);
-             if (CurrentState == UIState.Interactive)
+            if (CurrentState == UIState.Interactive)
             {
                 UpdateValueFromInput(eventData);
             }
@@ -59,8 +62,7 @@ namespace YourGame.UI.Widgets
 
         private void UpdateValueFromInput(PointerEventData eventData)
         {
-            Vector2 localPoint;
-            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_backgroundRect, eventData.position, eventData.pressEventCamera, out localPoint))
+            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_backgroundRect, eventData.position, eventData.pressEventCamera, out Vector2 localPoint))
             {
                 float sliderWidth = _backgroundRect.rect.width;
                 float newValue = (localPoint.x - _backgroundRect.rect.xMin) / sliderWidth;

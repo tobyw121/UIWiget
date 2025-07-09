@@ -1,4 +1,4 @@
-// Dateiname: UIModalDialog.cs
+// Dateiname: UIModalDialog.cs (Korrigiert)
 using UnityEngine;
 using UnityEngine.Events;
 using YourGame.UI.Widgets;
@@ -20,6 +20,11 @@ namespace YourGame.UI
         protected override void Awake()
         {
             base.Awake();
+
+            // KORREKTUR: Events initialisieren, um NullReferenceException zu vermeiden.
+            if (OnOK == null) OnOK = new UnityEvent();
+            if (OnCancel == null) OnCancel = new UnityEvent();
+
             if (okButton) okButton.OnClickEvent.AddListener((w, d) => { OnOK?.Invoke(); Hide(); });
             if (cancelButton) cancelButton.OnClickEvent.AddListener((w, d) => { OnCancel?.Invoke(); Hide(); });
             if (closeButton) closeButton.OnClickEvent.AddListener((w, d) => { OnCancel?.Invoke(); Hide(); });
@@ -33,9 +38,10 @@ namespace YourGame.UI
             OnOK.RemoveAllListeners();
             OnCancel.RemoveAllListeners();
 
-            OnOK.AddListener(() => onOkAction?.Invoke());
+            if (onOkAction != null) OnOK.AddListener(onOkAction);
+            
             if (onCancelAction != null) {
-                OnCancel.AddListener(() => onCancelAction.Invoke());
+                OnCancel.AddListener(onCancelAction);
                 cancelButton?.gameObject.SetActive(true);
             } else {
                 cancelButton?.gameObject.SetActive(false);

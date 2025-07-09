@@ -1,3 +1,4 @@
+// Dateiname: UIProgressBar.cs (Final Korrigiert)
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -28,7 +29,8 @@ namespace YourGame.UI.Widgets
         protected override void Awake()
         {
             base.Awake();
-            if (_fillImage == null) Debug.LogError("Fill Image nicht zugewiesen in UIProgressBar: " + name);
+            // Die Prüfung in Awake wurde entfernt, um Fehler bei der dynamischen Erstellung zu vermeiden.
+            // Der Null-Check in UpdateFill() ist ausreichend.
             UpdateFill();
         }
 
@@ -37,8 +39,9 @@ namespace YourGame.UI.Widgets
             UpdateFill();
         }
 
-        private void UpdateFill()
+        public void UpdateFill()
         {
+            // Dieser Null-Check verhindert Laufzeitfehler.
             if (_fillImage != null)
             {
                 _fillImage.fillAmount = _progress;
