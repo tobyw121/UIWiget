@@ -36,7 +36,6 @@ public class UIWidgetDemoSetup : EditorWindow
         GUILayout.Label("Komponenten-Demonstrationen", EditorStyles.boldLabel);
         if (GUILayout.Button("UIWidget (Show/Hide/Tween)")) DemonstrateUIWidget();
         if (GUILayout.Button("UIMenu & UIScrollList (Pooling)")) DemonstrateMenus();
-        if (GUILayout.Button("UITabView (Registerkarten)")) DemonstrateTabView();
         
         EditorGUILayout.Space();
         GUILayout.Label("Weitere Komponenten", EditorStyles.boldLabel);
@@ -44,6 +43,12 @@ public class UIWidgetDemoSetup : EditorWindow
         if (GUILayout.Button("Slider & Progress Bars (Interaktiv)")) DemonstrateSlidersAndProgress();
         if (GUILayout.Button("Toggle Button")) DemonstrateToggleButton();
         
+        EditorGUILayout.Space();
+        GUILayout.Label("Fortgeschrittene RPG-Module", EditorStyles.boldLabel);
+        if (GUILayout.Button("Crafting-Panel demonstrieren")) DemonstrateCraftingPanel();
+        if (GUILayout.Button("Ausrüstungs-Vergleich demonstrieren")) DemonstrateComparisonTooltip();
+        if (GUILayout.Button("Skill-Baum demonstrieren")) DemonstrateSkillTree();
+
         EditorGUILayout.Space();
         GUILayout.Label("MMORPG-System-Demonstrationen", EditorStyles.boldLabel);
         if (GUILayout.Button("Quest-Tracker demonstrieren")) DemonstrateQuestTracker();
@@ -53,6 +58,154 @@ public class UIWidgetDemoSetup : EditorWindow
     }
 
     #region Demo Methods
+
+    private void DemonstrateCraftingPanel()
+    {
+        var ironOre = ScriptableObject.CreateInstance<ItemData>();
+        ironOre.itemName = "Eisenerz";
+        var wood = ScriptableObject.CreateInstance<ItemData>();
+        wood.itemName = "Holz";
+        var ironSword = ScriptableObject.CreateInstance<EquipmentData>();
+        ironSword.itemName = "Eisenschwert";
+
+        var swordRecipe = ScriptableObject.CreateInstance<CraftingRecipe>();
+        swordRecipe.resultItem = ironSword;
+        swordRecipe.requiredMaterials = new List<RequiredMaterial>
+        {
+            new RequiredMaterial { item = ironOre, quantity = 5 },
+            new RequiredMaterial { item = wood, quantity = 2 }
+        };
+
+        var craftingGO = CreatePanel("CraftingPanel", new Color(0.2f, 0.2f, 0.3f), Vector2.zero, new Vector2(500, 300));
+        if (craftingGO == null) return;
+        var craftingPanel = craftingGO.AddComponent<UICraftingPanel>();
+
+        var recipeList = CreateScrollList("RecipeList", new Vector2(-125, 0));
+        recipeList.transform.SetParent(craftingGO.transform, false);
+
+        var resultIcon = CreatePanel("ResultIcon", Color.black, new Vector2(125, 100), new Vector2(80, 80)).GetComponent<Image>();
+        var resultName = CreateText("ResultName", "Item Name", craftingGO.transform, 20);
+        resultName.rectTransform.anchoredPosition = new Vector2(125, 40);
+        
+        var materialsContainer = CreatePanel("MaterialsContainer", Color.clear, new Vector2(125, -30), new Vector2(220, 150)).GetComponent<RectTransform>();
+        materialsContainer.gameObject.AddComponent<VerticalLayoutGroup>();
+
+        var craftButton = CreateButton("CraftButton", "Herstellen", new Vector2(125, -120)).GetComponent<UIButton>();
+        
+        var matTemplate = CreatePanel("MaterialTemplate", Color.clear, Vector2.zero, new Vector2(220, 30));
+        var hlg = matTemplate.AddComponent<HorizontalLayoutGroup>();
+        hlg.spacing = 10;
+        hlg.childControlWidth = false;
+        var iconPanel = CreatePanel("Icon", Color.white, Vector2.zero, new Vector2(25,25));
+        iconPanel.transform.SetParent(matTemplate.transform, false);
+        var nameText = CreateText("Name", "Mat Name", matTemplate.transform, 14);
+        nameText.alignment = TextAlignmentOptions.Left;
+        var amountText = CreateText("Amount", "0/0", matTemplate.transform, 14);
+        amountText.alignment = TextAlignmentOptions.Right;
+        matTemplate.transform.SetParent(materialsContainer.transform, false);
+        matTemplate.SetActive(false);
+        
+        craftingPanel.Initialize(recipeList, resultIcon, resultName, materialsContainer, matTemplate, craftButton);
+        craftingPanel.PopulateRecipes(new List<CraftingRecipe> { swordRecipe });
+    }
+
+    private void DemonstrateComparisonTooltip()
+    {
+        var currentSword = ScriptableObject.CreateInstance<EquipmentData>();
+        currentSword.itemName = "Altes Schwert";
+        currentSword.attack = 10;
+        currentSword.defense = 5;
+
+        var newSword = ScriptableObject.CreateInstance<EquipmentData>();
+        newSword.itemName = "Neues Eisenschwert";
+        newSword.attack = 15;
+        newSword.defense = 3;
+        
+        var tooltipGO = CreatePanel("ComparisonTooltip", new Color(0.1f, 0.1f, 0.1f, 0.9f), new Vector2(Screen.width / 2f, Screen.height / 2f), new Vector2(350, 150));
+        if (tooltipGO == null) return;
+        var tooltip = tooltipGO.AddComponent<UIComparisonTooltip>();
+        
+        var currentPanel = CreatePanel("CurrentItemPanel", Color.clear, new Vector2(-85, 0), new Vector2(160, 140));
+        currentPanel.transform.SetParent(tooltipGO.transform, false);
+        var newPanel = CreatePanel("NewItemPanel", Color.clear, new Vector2(85, 0), new Vector2(160, 140));
+        newPanel.transform.SetParent(tooltipGO.transform, false);
+
+        var currentName = CreateText("CurrentName", "Current", currentPanel.transform, 16);
+        var currentIcon = CreatePanel("CurrentIcon", Color.gray, new Vector2(0, 20), new Vector2(50,50)).GetComponent<Image>();
+        var currentAtk = CreateText("CurrentAtk", "Atk: 0", currentPanel.transform, 14);
+        var currentDef = CreateText("CurrentDef", "Def: 0", currentPanel.transform, 14);
+        currentName.rectTransform.anchoredPosition = new Vector2(0, 55);
+        currentAtk.rectTransform.anchoredPosition = new Vector2(0, -25);
+        currentDef.rectTransform.anchoredPosition = new Vector2(0, -45);
+        
+        var newName = CreateText("NewName", "New", newPanel.transform, 16);
+        var newIcon = CreatePanel("NewIcon", Color.cyan, new Vector2(0, 20), new Vector2(50,50)).GetComponent<Image>();
+        var newAtk = CreateText("NewAtk", "Atk: 0", newPanel.transform, 14);
+        var newDef = CreateText("NewDef", "Def: 0", newPanel.transform, 14);
+        newName.rectTransform.anchoredPosition = new Vector2(0, 55);
+        newAtk.rectTransform.anchoredPosition = new Vector2(0, -25);
+        newDef.rectTransform.anchoredPosition = new Vector2(0, -45);
+
+        SetPrivateField(tooltip, "_currentItemPanel", currentPanel);
+        SetPrivateField(tooltip, "_currentItemName", currentName);
+        SetPrivateField(tooltip, "_currentItemIcon", currentIcon);
+        SetPrivateField(tooltip, "_currentItemAttack", currentAtk);
+        SetPrivateField(tooltip, "_currentItemDefense", currentDef);
+        
+        SetPrivateField(tooltip, "_newItemPanel", newPanel);
+        SetPrivateField(tooltip, "_newItemName", newName);
+        SetPrivateField(tooltip, "_newItemIcon", newIcon);
+        SetPrivateField(tooltip, "_newItemAttack", newAtk);
+        SetPrivateField(tooltip, "_newItemDefense", newDef);
+        tooltip.SendMessage("Awake", SendMessageOptions.DontRequireReceiver);
+
+        tooltip.ShowComparison(newSword, currentSword);
+    }
+
+   private void DemonstrateSkillTree()
+{
+    var skillTreeGO = CreatePanel("SkillTree", new Color(0.1f, 0.2f, 0.1f), Vector2.zero, new Vector2(600, 400));
+    if (skillTreeGO == null) return;
+    var skillTree = skillTreeGO.AddComponent<UISkillTree>();
+    
+    var pointsText = CreateText("SkillPointsText", "Punkte: 10", skillTreeGO.transform, 18);
+    pointsText.rectTransform.anchoredPosition = new Vector2(0, 170);
+    
+    var linePrefabGO = CreatePanel("LinePrefab", Color.yellow, Vector2.zero, new Vector2(1,1));
+    linePrefabGO.AddComponent<UILineRenderer>(); // Füge die Komponente hinzu
+    linePrefabGO.transform.SetParent(skillTreeGO.transform, false);
+    linePrefabGO.SetActive(false);
+    
+    var node1 = CreateSkillNode("Stärke I", skillTreeGO.transform, new Vector2(0, 100));
+    var node2 = CreateSkillNode("Stärke II", skillTreeGO.transform, new Vector2(0, 20), node1);
+    var node3 = CreateSkillNode("Wirbelwind", skillTreeGO.transform, new Vector2(-100, -60), node2);
+    var node4 = CreateSkillNode("Standfest", skillTreeGO.transform, new Vector2(100, -60), node2);
+    var nodes = new List<UISkillNode> { node1, node2, node3, node4 };
+    
+    // KORREKTUR: Wir übergeben das GameObject des Prefabs, nicht die Komponente.
+    skillTree.Initialize(pointsText, nodes, linePrefabGO);
+    
+    skillTree.gameObject.SetActive(true);
+}
+    
+    #endregion
+
+    #region Helper Methods & Unchanged Demos
+    
+    private UISkillNode CreateSkillNode(string name, Transform parent, Vector2 position, UISkillNode dependency = null)
+    {
+        var nodeWidget = CreateButton(name, "", position, new Vector2(60, 60));
+        if (nodeWidget == null) return null;
+        nodeWidget.transform.SetParent(parent, false);
+        var skillNode = nodeWidget.gameObject.AddComponent<UISkillNode>();
+        
+        skillNode.skillName = name;
+        if (dependency != null)
+        {
+            skillNode.dependencies.Add(dependency);
+        }
+        return skillNode;
+    }
     
     private void DemonstrateSlidersAndProgress()
     {
@@ -164,35 +317,6 @@ public class UIWidgetDemoSetup : EditorWindow
 
         var scrollList = CreateScrollList("ScrollListe", new Vector2(250, 0));
         for (int i = 0; i < 100; i++) scrollList.AddWidget($"Gepoolter Eintrag {i + 1}");
-    }
-
-    private void DemonstrateTabView()
-    {
-        var tabViewGO = CreatePanel("TabViewPanel", Color.grey, new Vector2(0, -200), new Vector2(400, 200));
-        var tabView = tabViewGO.AddComponent<UITabView>();
-
-        var page1 = CreatePanel("Seite 1", Color.blue, Vector2.zero, new Vector2(400, 150));
-        page1.transform.SetParent(tabView.transform);
-        page1.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -25);
-
-        var page2 = CreatePanel("Seite 2", Color.green, Vector2.zero, new Vector2(400, 150));
-        page2.transform.SetParent(tabView.transform);
-        page2.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -25);
-        
-        var tab1 = CreateButton("Tab 1", "Tab 1", new Vector2(-100, 85));
-        var tab2 = CreateButton("Tab 2", "Tab 2", new Vector2(100, 85));
-        tab1.transform.SetParent(tabView.transform, false);
-        tab2.transform.SetParent(tabView.transform, false);
-
-        var tabComponent1 = tab1.gameObject.AddComponent<UITab>();
-        var tabComponent2 = tab2.gameObject.AddComponent<UITab>();
-        
-        SetPrivateField(tabComponent1, "_tabPage", page1);
-        SetPrivateField(tabComponent2, "_tabPage", page2);
-        SetPrivateField(tabView, "_tabs", new System.Collections.Generic.List<UITab> { tabComponent1, tabComponent2 });
-        
-        tabView.SendMessage("Awake", SendMessageOptions.DontRequireReceiver);
-        tabView.SendMessage("OnEnable", SendMessageOptions.DontRequireReceiver);
     }
     
     private void DemonstrateModalDialog()
@@ -383,9 +507,7 @@ public class UIWidgetDemoSetup : EditorWindow
             slot.Assign(GetPlaceholderSprite());
         }
     }
-    #endregion
-
-    #region Helper Methods
+    
     private Canvas GetCanvas() => FindObjectOfType<Canvas>();
 
     private UIWidget CreateSimpleWidget(string name, string text, Color color)
@@ -406,13 +528,13 @@ public class UIWidgetDemoSetup : EditorWindow
     
     private GameObject CreatePanel(string name, Color color, Vector2 position, Vector2 size)
     {
-        var go = new GameObject(name, typeof(RectTransform), typeof(CanvasGroup));
         var canvas = GetCanvas();
         if (canvas == null)
         {
             Debug.LogError("Kann kein Panel erstellen, da kein Canvas in der Szene ist. Bitte zuerst 'Basis-UI erstellen' klicken.");
             return null;
         }
+        var go = new GameObject(name, typeof(RectTransform), typeof(CanvasGroup));
         go.transform.SetParent(canvas.transform, false);
         var rt = go.GetComponent<RectTransform>();
         rt.anchoredPosition = position;
@@ -430,7 +552,7 @@ public class UIWidgetDemoSetup : EditorWindow
         go.transform.SetParent(parent, false);
         var text = go.GetComponent<TextMeshProUGUI>();
         text.text = content;
-        text.color = Color.black;
+        text.color = Color.white;
         text.fontSize = fontSize;
         text.alignment = TextAlignmentOptions.Center;
         var rt = text.rectTransform;

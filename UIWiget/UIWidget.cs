@@ -81,7 +81,7 @@ namespace YourGame.UI.Widgets
         [SerializeField] protected Easing.EaseType animationEaseType = Easing.EaseType.EaseOutQuad;
         [Header("Visuals")]
         [SerializeField] private VisualTransition transition = VisualTransition.None;
-        [SerializeField] private Graphic targetGraphic;
+        [SerializeField] protected Graphic targetGraphic;
         [SerializeField] private ColorTintBlock colorTints = new ColorTintBlock();
         [SerializeField] private SlideTransition slideTransition = new SlideTransition();
         [Header("Sound Events")]

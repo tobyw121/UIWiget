@@ -1,4 +1,4 @@
-// Dateiname: UIMenu.cs (Korrigiert)
+// Dateiname: UIMenu.cs (Final Korrigiert)
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
@@ -10,16 +10,12 @@ namespace YourGame.UI.Widgets
     {
         [Header("Menu Settings")]
         [Tooltip("Das Template-Prefab für jedes Item in der Liste.")]
-        // ÄNDERUNG: private -> protected
-        [SerializeField] protected UIWidget _itemTemplate; 
-
+        [SerializeField] protected UIWidget _itemTemplate;
         [Tooltip("Das UI-Element, das als Container für die Items dient (z.B. mit einem LayoutGroup).")]
-        // ÄNDERUNG: private -> protected
-        [SerializeField] protected RectTransform _contentContainer; 
-
+        [SerializeField] protected RectTransform _contentContainer;
         [Tooltip("Optional: Ein Highlight-Objekt, das über das ausgewählte Item gelegt wird.")]
         [SerializeField] private GameObject _selectionHighlight;
-
+        
         private readonly List<UIWidget> _items = new List<UIWidget>();
         private UIWidget _selectedWidget;
 
@@ -40,6 +36,10 @@ namespace YourGame.UI.Widgets
         protected override void Awake()
         {
             base.Awake();
+
+            // KORREKTUR: Event initialisieren, um NullReferenceException zu vermeiden.
+            if (OnItemSelected == null) OnItemSelected = new UnityEvent<UIWidget>();
+
             if (_itemTemplate != null) _itemTemplate.gameObject.SetActive(false);
             if (_selectionHighlight != null) _selectionHighlight.SetActive(false);
             if (_contentContainer == null) _contentContainer = transform as RectTransform;
