@@ -218,7 +218,7 @@ namespace YourGame.UI.Widgets
             _animationCoroutine = StartCoroutine(AnimateAlpha(0f, () => OnHideComplete?.Invoke()));
         }
 
-        public void Toggle()
+        public virtual void Toggle()
         {
             if (IsVisible) Hide();
             else Show();
