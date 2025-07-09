@@ -48,6 +48,7 @@ public class UIWidgetDemoSetup : EditorWindow
         if (GUILayout.Button("Crafting-Panel demonstrieren")) DemonstrateCraftingPanel();
         if (GUILayout.Button("Ausrüstungs-Vergleich demonstrieren")) DemonstrateComparisonTooltip();
         if (GUILayout.Button("Skill-Baum demonstrieren")) DemonstrateSkillTree();
+        if (GUILayout.Button("Kantine / Buff-Food demonstrieren")) DemonstrateKantine(); // NEUER BUTTON
 
         EditorGUILayout.Space();
         GUILayout.Label("MMORPG-System-Demonstrationen", EditorStyles.boldLabel);
@@ -59,6 +60,61 @@ public class UIWidgetDemoSetup : EditorWindow
 
     #region Demo Methods
 
+    // NEUE DEMO-METHODE
+    private void DemonstrateKantine()
+    {
+        // 1. Demo-Daten für Zutaten erstellen (mit dem universellen Buff-System)
+        var heartySteak = ScriptableObject.CreateInstance<IngredientData>();
+        heartySteak.itemName = "Herzhaftes Steak";
+        heartySteak.category = IngredientData.IngredientCategory.Fleisch;
+        heartySteak.buffs = new List<Buff> { new Buff { type = BuffType.Angriff, value = 10 }, new Buff { type = BuffType.Gesundheit, value = 5 } };
+
+        var giantFish = ScriptableObject.CreateInstance<IngredientData>();
+        giantFish.itemName = "Riesenfisch";
+        giantFish.category = IngredientData.IngredientCategory.Fisch;
+        giantFish.buffs = new List<Buff> { new Buff { type = BuffType.Ausdauer, value = 25 } };
+
+        var sunHerb = ScriptableObject.CreateInstance<IngredientData>();
+        sunHerb.itemName = "Sonnenkraut";
+        sunHerb.category = IngredientData.IngredientCategory.Gemüse;
+        sunHerb.buffs = new List<Buff> { new Buff { type = BuffType.Verteidigung, value = 15 } };
+
+        var allIngredients = new List<IngredientData> { heartySteak, giantFish, sunHerb };
+
+        // 2. UI-Elemente für die Kantine erstellen
+        var kantineGO = CreatePanel("KantinePanel", new Color(0.3f, 0.2f, 0.2f), Vector2.zero, new Vector2(550, 350));
+        var kantine = kantineGO.AddComponent<UIKantine>();
+
+        // Zutatenauswahl-Liste
+        var selectionList = CreateScrollList("IngredientSelection", new Vector2(-150, 0));
+        selectionList.transform.SetParent(kantineGO.transform, false);
+
+        // Slots zum Kochen
+        var slotsPanel = CreatePanel("KochSlots", Color.clear, new Vector2(125, 100), new Vector2(250, 70));
+        slotsPanel.transform.SetParent(kantineGO.transform, false);
+        slotsPanel.AddComponent<HorizontalLayoutGroup>().spacing = 10;
+        
+        var slots = new List<UIInventorySlot>();
+        for (int i = 0; i < 3; i++)
+        {
+            var slotGO = CreatePanel($"KochSlot_{i}", Color.black, Vector2.zero, new Vector2(60, 60));
+            slotGO.transform.SetParent(slotsPanel.transform, false);
+            slots.Add(slotGO.AddComponent<UIInventorySlot>());
+        }
+
+        // Ergebnis-Anzeige
+        var resultText = CreateText("ResultText", "...", kantineGO.transform, 16);
+        resultText.rectTransform.anchoredPosition = new Vector2(125, -20);
+        resultText.rectTransform.sizeDelta = new Vector2(240, 100);
+        resultText.alignment = TextAlignmentOptions.TopLeft;
+
+        var cookButton = CreateButton("CookButton", "Kochen", new Vector2(125, -125)).GetComponent<UIButton>();
+
+        // 3. Kantinen-Panel initialisieren und mit Daten füllen
+        kantine.Initialize(slots, resultText, cookButton, selectionList);
+        kantine.PopulateIngredients(allIngredients);
+    }
+    
     private void DemonstrateCraftingPanel()
     {
         var ironOre = ScriptableObject.CreateInstance<ItemData>();
@@ -162,32 +218,32 @@ public class UIWidgetDemoSetup : EditorWindow
         tooltip.ShowComparison(newSword, currentSword);
     }
 
-   private void DemonstrateSkillTree()
-{
-    var skillTreeGO = CreatePanel("SkillTree", new Color(0.1f, 0.2f, 0.1f), Vector2.zero, new Vector2(600, 400));
-    if (skillTreeGO == null) return;
-    var skillTree = skillTreeGO.AddComponent<UISkillTree>();
+    private void DemonstrateSkillTree()
+    {
+        var skillTreeGO = CreatePanel("SkillTree", new Color(0.1f, 0.2f, 0.1f), Vector2.zero, new Vector2(600, 400));
+        if (skillTreeGO == null) return;
+        var skillTree = skillTreeGO.AddComponent<UISkillTree>();
+        
+        var pointsText = CreateText("SkillPointsText", "Punkte: 10", skillTreeGO.transform, 18);
+        pointsText.rectTransform.anchoredPosition = new Vector2(0, 170);
+        
+        var linePrefabGO = CreatePanel("LinePrefab", Color.yellow, Vector2.zero, new Vector2(1,1));
+        linePrefabGO.AddComponent<UILineRenderer>();
+        linePrefabGO.transform.SetParent(skillTreeGO.transform, false);
+        linePrefabGO.SetActive(false);
+        
+        var node1 = CreateSkillNode("Stärke I", skillTreeGO.transform, new Vector2(0, 100));
+        var node2 = CreateSkillNode("Stärke II", skillTreeGO.transform, new Vector2(0, 20), node1);
+        var node3 = CreateSkillNode("Wirbelwind", skillTreeGO.transform, new Vector2(-100, -60), node2);
+        var node4 = CreateSkillNode("Standfest", skillTreeGO.transform, new Vector2(100, -60), node2);
+        var nodes = new List<UISkillNode> { node1, node2, node3, node4 };
+        
+        skillTree.Initialize(pointsText, nodes, linePrefabGO);
+        skillTree.gameObject.SetActive(true);
+    }
     
-    var pointsText = CreateText("SkillPointsText", "Punkte: 10", skillTreeGO.transform, 18);
-    pointsText.rectTransform.anchoredPosition = new Vector2(0, 170);
-    
-    var linePrefabGO = CreatePanel("LinePrefab", Color.yellow, Vector2.zero, new Vector2(1,1));
-    linePrefabGO.AddComponent<UILineRenderer>(); // Füge die Komponente hinzu
-    linePrefabGO.transform.SetParent(skillTreeGO.transform, false);
-    linePrefabGO.SetActive(false);
-    
-    var node1 = CreateSkillNode("Stärke I", skillTreeGO.transform, new Vector2(0, 100));
-    var node2 = CreateSkillNode("Stärke II", skillTreeGO.transform, new Vector2(0, 20), node1);
-    var node3 = CreateSkillNode("Wirbelwind", skillTreeGO.transform, new Vector2(-100, -60), node2);
-    var node4 = CreateSkillNode("Standfest", skillTreeGO.transform, new Vector2(100, -60), node2);
-    var nodes = new List<UISkillNode> { node1, node2, node3, node4 };
-    
-    // KORREKTUR: Wir übergeben das GameObject des Prefabs, nicht die Komponente.
-    skillTree.Initialize(pointsText, nodes, linePrefabGO);
-    
-    skillTree.gameObject.SetActive(true);
-}
-    
+    // (Der Rest des Skripts bleibt unverändert)
+
     #endregion
 
     #region Helper Methods & Unchanged Demos

@@ -1,4 +1,4 @@
-// Dateiname: UIWidgetManager.cs (Verbesserungen)
+// Dateiname: UIWidgetManager.cs
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,11 +11,18 @@ namespace YourGame.UI.Widgets
     {
         private static UIWidgetManager _instance;
         private static readonly object _lock = new object();
+        private static bool _isShuttingDown = false;
 
         public static UIWidgetManager Instance
         {
             get
             {
+                if (_isShuttingDown)
+                {
+                    Debug.LogWarning("[UIWidgetManager] Instance called during application quit. Returning null.");
+                    return null;
+                }
+
                 lock (_lock)
                 {
                     if (_instance == null)
@@ -32,12 +39,12 @@ namespace YourGame.UI.Widgets
             }
         }
 
-        private Dictionary<string, List<UIWidget>> _widgetCache = new Dictionary<string, List<UIWidget>>();
-
-        // Für Cursor-Management (KAUI-ähnlich)
+        private readonly Dictionary<string, List<UIWidget>> _widgetCache = new Dictionary<string, List<UIWidget>>();
+        
+        // Event für Cursor-Änderungen
         public static event Action<string> OnCursorChanged;
-        private static string _currentCursorName = "Arrow"; // Standard-Cursor-Name
-        private static bool _isExclusiveCursorActive = false; // Status für exklusiven Cursor
+        private static string _currentCursorName = "Arrow";
+        private static bool _isExclusiveCursorActive = false;
 
         private void Awake()
         {
@@ -47,14 +54,15 @@ namespace YourGame.UI.Widgets
                 return;
             }
             _instance = this;
+            _isShuttingDown = false; // Wichtig für Szenen-Neuladen
             DontDestroyOnLoad(gameObject);
         }
 
         private void OnEnable()
         {
-            PopulateWidgetCache();
             SceneManager.sceneLoaded += OnSceneLoaded;
             SceneManager.sceneUnloaded += OnSceneUnloaded;
+            PopulateWidgetCache();
         }
 
         private void OnDisable()
@@ -62,6 +70,11 @@ namespace YourGame.UI.Widgets
             SceneManager.sceneLoaded -= OnSceneLoaded;
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
             _widgetCache.Clear();
+        }
+        
+        private void OnApplicationQuit()
+        {
+            _isShuttingDown = true;
         }
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -74,6 +87,7 @@ namespace YourGame.UI.Widgets
             var widgetsToRemove = _widgetCache.SelectMany(kv => kv.Value)
                                               .Where(w => w != null && w.gameObject.scene == scene)
                                               .ToList();
+
             foreach (var widget in widgetsToRemove)
             {
                 UnregisterWidget(widget);
@@ -97,7 +111,6 @@ namespace YourGame.UI.Widgets
         {
             if (widget == null || string.IsNullOrEmpty(widget.Name))
             {
-                Debug.LogWarning($"[UIWidgetManager] Attempted to register a null or nameless widget: {widget?.gameObject.name ?? "NULL"}");
                 return;
             }
             if (!_widgetCache.ContainsKey(widget.Name))
@@ -125,7 +138,7 @@ namespace YourGame.UI.Widgets
 
         public static T Find<T>(string name) where T : UIWidget
         {
-            if (Instance._widgetCache.TryGetValue(name, out var widgets))
+            if (Instance != null && Instance._widgetCache.TryGetValue(name, out var widgets))
             {
                 return widgets.OfType<T>().FirstOrDefault();
             }
@@ -135,70 +148,48 @@ namespace YourGame.UI.Widgets
         public static List<T> FindAll<T>() where T : UIWidget
         {
             List<T> allOfType = new List<T>();
-            foreach (var list in Instance._widgetCache.Values)
+            if (Instance != null)
             {
-                allOfType.AddRange(list.OfType<T>());
+                 foreach (var list in Instance._widgetCache.Values)
+                {
+                    allOfType.AddRange(list.OfType<T>());
+                }
             }
             return allOfType.Distinct().ToList();
         }
-
-        /// <summary>
-        /// Setzt den Standard-Cursor.
-        /// Entspricht KAUICursorManager.SetDefaultCursor.
-        /// </summary>
-        /// <param name="cursorName">Der Name des Cursors.</param>
-        public static void SetDefaultCursor(string cursorName = "Arrow")
+        
+        public static void SetExclusive(UIWidget widget, Color maskColor)
         {
-            _currentCursorName = cursorName;
-            Debug.Log($"[UIWidgetManager] Cursor set to: {_currentCursorName}");
-            OnCursorChanged?.Invoke(_currentCursorName); // Informiert alle Listener
+            if (Instance == null) return;
+            Debug.Log($"[UIWidgetManager] Widget '{widget?.Name}' set as exclusive with mask color {maskColor}.");
+            UIOverlayManager.Instance.ActivateExclusiveOverlay(maskColor);
         }
 
-        /// <summary>
-        /// Aktiviert oder deaktiviert einen exklusiven Lade-Cursor.
-        /// Entspricht KAUICursorManager.SetExclusiveLoadingGear.
-        /// </summary>
-        /// <param name="status">True zum Aktivieren, False zum Deaktivieren.</param>
+        public static void RemoveExclusive(UIWidget widget)
+        {
+            if (Instance == null) return;
+            Debug.Log($"[UIWidgetManager] Exclusive status removed for widget '{widget?.Name}'.");
+            UIOverlayManager.Instance.DeactivateExclusiveOverlay();
+        }
+        
+        public static void SetDefaultCursor(string cursorName = "Arrow")
+        {
+            if (_isExclusiveCursorActive) return;
+            _currentCursorName = cursorName;
+            OnCursorChanged?.Invoke(_currentCursorName);
+        }
+
         public static void SetExclusiveLoadingGear(bool status)
         {
             _isExclusiveCursorActive = status;
             if (status)
             {
-                SetDefaultCursor("Loading");
-                Debug.Log("[UIWidgetManager] Exclusive loading cursor activated.");
-                // Hier könnte Logik zum Anzeigen eines globalen Lade-Overlays stehen
-                // oder das Haupt-UI als nicht interaktiv markiert werden,
-                // um die Exklusivität zu simulieren.
+                OnCursorChanged?.Invoke("Loading");
             }
             else
             {
-                SetDefaultCursor("Arrow"); // Zurück zum Standard-Cursor
-                Debug.Log("[UIWidgetManager] Exclusive loading cursor deactivated.");
-                // Hier könnte Logik zum Ausblenden des Overlays stehen
+                OnCursorChanged?.Invoke(_currentCursorName);
             }
-        }
-
-        /// <summary>
-        /// Simuliert die SetExclusive-Funktion von KAUI für ein UIWidget.
-        /// Dies müsste eine externe Logik sein, die ein CanvasGroup-Overlay steuert.
-        /// Das UIWidget selbst kennt KAUI nicht.
-        /// </summary>
-        /// <param name="widget">Das Widget, das exklusiv gemacht werden soll.</param>
-        /// <param name="maskColor">Die Farbe des Masken-Overlays.</param>
-        public static void SetExclusive(UIWidget widget, Color maskColor)
-        {
-            Debug.Log($"[UIWidgetManager] Widget '{widget.Name}' set as exclusive with mask color {maskColor}.");
-            UIOverlayManager.Instance.ActivateExclusiveOverlay(maskColor);
-        }
-
-        /// <summary>
-        /// Simuliert die RemoveExclusive-Funktion von KAUI für ein UIWidget.
-        /// </summary>
-        /// <param name="widget">Das Widget, dessen Exklusiv-Status entfernt werden soll.</param>
-        public static void RemoveExclusive(UIWidget widget)
-        {
-            Debug.Log($"[UIWidgetManager] Exclusive status removed for widget '{widget.Name}'.");
-            UIOverlayManager.Instance.DeactivateExclusiveOverlay();
         }
     }
 }
