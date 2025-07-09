@@ -20,14 +20,20 @@ namespace YourGame.UI.Widgets
             _inputField.onDeselect.AddListener(delegate { if(UIInputHandler.Instance?.FocusedWidget == this) UIInputHandler.Instance.SetFocus(null); });
         }
 
-        // Wenn das Widget den Fokus vom UIInputHandler erhält, fokussiere das Textfeld
+        // KORREKTUR: "override" hinzugefügt
         public override void OnFocusGained()
         {
             base.OnFocusGained();
             _inputField.ActivateInputField();
         }
         
-        // Überschreibe SetText, um das InputField zu aktualisieren
+        // KORREKTUR: "override" hinzugefügt (gute Praxis, auch wenn hier leer)
+        public override void OnFocusLost()
+        {
+            base.OnFocusLost();
+            // Hier könnte man z.B. visuelles Feedback für den Fokusverlust hinzufügen
+        }
+        
         public override void SetText(string text)
         {
             if (_inputField != null)

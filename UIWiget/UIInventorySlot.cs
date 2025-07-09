@@ -17,6 +17,8 @@ namespace YourGame.UI.Widgets
         // Wird aufgerufen, wenn ein anderes Item auf diesen Slot gezogen wird
         public void OnDrop(PointerEventData eventData)
         {
+            if (eventData.pointerDrag == null) return;
+            
             var droppedItem = eventData.pointerDrag.GetComponent<UIDraggable>();
             if (droppedItem == null) return;
             
@@ -33,10 +35,21 @@ namespace YourGame.UI.Widgets
         {
             if (_currentItem == null)
             {
+                // KORREKTUR: Prüfen, ob das Prefab existiert.
+                if (_itemInSlotPrefab == null) {
+                    Debug.LogError($"ItemInSlotPrefab ist nicht zugewiesen für Slot {name}!", gameObject);
+                    return;
+                }
                 _currentItem = Instantiate(_itemInSlotPrefab, transform);
             }
             _currentItem.GetComponent<Image>().sprite = icon;
-            _stackSizeText.text = stackSize > 1 ? stackSize.ToString() : "";
+
+            // KORREKTUR: Prüfe, ob das Text-Element existiert, bevor es verwendet wird.
+            if (_stackSizeText != null)
+            {
+                _stackSizeText.text = stackSize > 1 ? stackSize.ToString() : "";
+            }
+            
             _currentItem.gameObject.SetActive(true);
         }
 
@@ -47,7 +60,7 @@ namespace YourGame.UI.Widgets
                 Destroy(_currentItem.gameObject);
                 _currentItem = null;
             }
-            _stackSizeText.text = "";
+            if (_stackSizeText != null) _stackSizeText.text = "";
         }
 
         // Tauscht den Inhalt mit einem anderen Slot
@@ -66,10 +79,13 @@ namespace YourGame.UI.Widgets
             if (otherSlot._currentItem) otherSlot._currentItem.RectTransform.anchoredPosition = Vector2.zero;
             if (this._currentItem) this._currentItem.RectTransform.anchoredPosition = Vector2.zero;
             
-            // Stack-Texte tauschen
-            var tempText = _stackSizeText.text;
-            _stackSizeText.text = otherSlot._stackSizeText.text;
-            otherSlot._stackSizeText.text = tempText;
+            // Stack-Texte tauschen, falls vorhanden
+            if (_stackSizeText != null && otherSlot._stackSizeText != null)
+            {
+                var tempText = _stackSizeText.text;
+                _stackSizeText.text = otherSlot._stackSizeText.text;
+                otherSlot._stackSizeText.text = tempText;
+            }
         }
     }
 }

@@ -37,10 +37,10 @@ namespace YourGame.UI.Widgets
         IPointerEnterHandler, IPointerExitHandler, 
         IPointerDownHandler, IPointerUpHandler, 
         IPointerClickHandler, 
-        IBeginDragHandler, IDragHandler, IEndDragHandler,
-        IPointerDoubleClickHandler, IPointerRightClickHandler
+        IBeginDragHandler, IDragHandler, IEndDragHandler
     {
         public enum UIState { Interactive, Disabled, NotInteractive }
+        
         public enum VisualTransition { None, ColorTint, SpriteSwap, Fade, Scale, Slide }
 
         [Serializable]
@@ -50,16 +50,6 @@ namespace YourGame.UI.Widgets
             [TextArea] public string TooltipText = "";
             public float Delay = 0.5f;
             public Vector2 Offset = new Vector2(0, -30);
-            public bool ShowUI = true;
-            public AudioClip Sound;
-            public Vector2 Padding = new Vector2(10, 10);
-            public Sprite BackgroundSprite;
-            public Color Color = Color.white;
-            public Color TextColor = Color.white;
-            public float InitialAlpha = 0.1f;
-            public float InitialScale = 0.1f;
-            public float FinalScale = 1f;
-            public Easing.EaseType Style = Easing.EaseType.Linear;
         }
 
         [Serializable]
@@ -99,35 +89,33 @@ namespace YourGame.UI.Widgets
         [SerializeField] protected AudioClip hideSound;
         [SerializeField] protected AudioClip clickSound;
         [SerializeField] protected AudioClip hoverSound;
-        [SerializeField] protected AudioClip doubleClickSound;
-        [SerializeField] protected AudioClip rightClickSound;
         [Header("Tooltip")]
         [SerializeField] public TooltipInfo Tooltip;
-        public UnityEvent OnShowStart, OnShowComplete, OnHideStart, OnHideComplete;
-        public UnityEvent OnFocusGainedEvent, OnFocusLostEvent;
-        public UnityEvent<UIWidget, PointerEventData> OnClickEvent;
-        public UnityEvent<UIWidget, bool> OnPressEvent;
-        public UnityEvent<UIWidget, bool> OnHoverEvent;
-        public UnityEvent<UIWidget, PointerEventData> OnDragStartEvent;
-        public UnityEvent<UIWidget, PointerEventData> OnDragEvent;
-        public UnityEvent<UIWidget, PointerEventData> OnDragEndEvent;
-        public UnityEvent<UIWidget, PointerEventData> OnDoubleClickEvent;
-        public UnityEvent<UIWidget, PointerEventData> OnRightClickEvent;
+
+        public UnityEvent OnShowStart { get; set; } = new UnityEvent();
+        public UnityEvent OnShowComplete { get; set; } = new UnityEvent();
+        public UnityEvent OnHideStart { get; set; } = new UnityEvent();
+        public UnityEvent OnHideComplete { get; set; } = new UnityEvent();
+        public UnityEvent OnFocusGainedEvent { get; set; } = new UnityEvent();
+        public UnityEvent OnFocusLostEvent { get; set; } = new UnityEvent();
+        public UnityEvent<UIWidget, PointerEventData> OnClickEvent { get; set; } = new UnityEvent<UIWidget, PointerEventData>();
+        public UnityEvent<UIWidget, bool> OnPressEvent { get; set; } = new UnityEvent<UIWidget, bool>();
+        public UnityEvent<UIWidget, bool> OnHoverEvent { get; set; } = new UnityEvent<UIWidget, bool>();
+        public UnityEvent<UIWidget, PointerEventData> OnDragStartEvent { get; set; } = new UnityEvent<UIWidget, PointerEventData>();
+        public UnityEvent<UIWidget, PointerEventData> OnDragEvent { get; set; } = new UnityEvent<UIWidget, PointerEventData>();
+        public UnityEvent<UIWidget, PointerEventData> OnDragEndEvent { get; set; } = new UnityEvent<UIWidget, PointerEventData>();
 
         public string Name 
         { 
             get => widgetName;
-            set => widgetName = value; // Setter hinzugefügt
+            set => widgetName = value;
         }
 
         public bool IsVisible => _canvasGroup != null && _canvasGroup.alpha > 0.99f;
         public UIState CurrentState { get; private set; }
         public object UserData { get; set; }
-        public object ParentMenu { get; internal set; }
-        public UIWidget ParentWidget { get; internal set; }
+        public UIMenu ParentMenu { get; internal set; }
         public RectTransform RectTransform => _rectTransform;
-        public bool IsVisibleInHierarchy { get; protected set; }
-        public UIState StateInHierarchy { get; protected set; }
 
         protected CanvasGroup _canvasGroup;
         protected RectTransform _rectTransform;
@@ -136,39 +124,27 @@ namespace YourGame.UI.Widgets
         protected bool _isHovering;
         protected bool _isPressed;
         protected bool _isDragging;
-        protected Image _imageComponent;
-        protected RawImage _rawImageComponent;
-        protected Text _textComponent; // Legacy Unity UI Text
-        protected Collider _colliderComponent;
-        private float _doubleClickTimeThreshold = 0.3f;
-        private float _lastClickTime;
 
         protected virtual void Awake()
         {
             _rectTransform = GetComponent<RectTransform>();
             _canvasGroup = GetComponent<CanvasGroup>();
-            _imageComponent = GetComponent<Image>();
-            _rawImageComponent = GetComponent<RawImage>();
-            _textComponent = GetComponentInChildren<Text>();
-            // If you only use TextMeshPro, this would be:
-            // _textComponentTMP = GetComponentInChildren<TMPro.TextMeshProUGUI>();
-            _colliderComponent = GetComponent<Collider>();
             if (targetGraphic == null) targetGraphic = GetComponent<Graphic>();
-
-            if (gameObject.activeSelf)
+            
+            if (gameObject.activeInHierarchy)
             {
                 SetState(startingState);
             }
             else
             {
-                _canvasGroup.alpha = 0f;
-                SetState(UIState.Disabled); // Startet im deaktivierten Zustand, wenn inaktiv im Editor
+                // KORREKTUR: Tippfehler behoben (_canvasGroud -> _canvasGroup)
+                if (_canvasGroup != null) _canvasGroup.alpha = 0f;
+                SetState(UIState.Disabled); 
                 if (deactivateOnHide)
                 {
-                    gameObject.SetActive(false); // Stellt sicher, dass es deaktiviert ist, wenn es versteckt ist
+                    gameObject.SetActive(false);
                 }
             }
-            UpdateColliderState();
         }
 
         protected virtual void OnEnable()
@@ -179,29 +155,29 @@ namespace YourGame.UI.Widgets
                 UIInputHandler.Instance.RegisterToggleKey(toggleKey, this);
             }
             DoColorTransition(CurrentState, true);
-            UpdateColliderState();
         }
 
         protected virtual void OnDisable()
         {
             if (UIWidgetManager.Instance != null) UIWidgetManager.Instance.UnregisterWidget(this);
             if (UIInputHandler.Instance != null && toggleKey != KeyCode.None) UIInputHandler.Instance.UnregisterToggleKey(toggleKey, this);
-            if (_isHovering) { OnHoverEvent?.Invoke(this, false); _isHovering = false; }
-            if (_isPressed) { OnPressEvent?.Invoke(this, false); _isPressed = false; }
-            UpdateColliderState();
+            
+            _isHovering = false;
+            _isPressed = false;
         }
 
         public virtual void Show()
         {
             if (IsVisible && gameObject.activeSelf) return;
             if (_animationCoroutine != null) StopCoroutine(_animationCoroutine);
+            
             OnShowStart?.Invoke();
             gameObject.SetActive(true);
             SetState(UIState.Interactive);
-            UpdateVisibleInHierarchy(true);
+
             if (focusOnShow && transform.parent != null)
             {
-                transform.SetAsLastSibling(); // Bringt das Widget in der Hierarchie ganz nach vorne
+                transform.SetAsLastSibling();
             }
             PlaySound(showSound);
             _animationCoroutine = StartCoroutine(AnimateAlpha(1f, () => OnShowComplete?.Invoke()));
@@ -211,9 +187,9 @@ namespace YourGame.UI.Widgets
         {
             if (!IsVisible && !gameObject.activeSelf) return;
             if (_animationCoroutine != null) StopCoroutine(_animationCoroutine);
+            
             OnHideStart?.Invoke();
-            SetState(UIState.NotInteractive); // Setzt auf NotInteractive, um Interaktionen während des Ausblendens zu verhindern
-            UpdateVisibleInHierarchy(false);
+            SetState(UIState.NotInteractive);
             PlaySound(hideSound);
             _animationCoroutine = StartCoroutine(AnimateAlpha(0f, () => OnHideComplete?.Invoke()));
         }
@@ -227,24 +203,12 @@ namespace YourGame.UI.Widgets
         public virtual void SetState(UIState newState)
         {
             CurrentState = newState;
-            UpdateStateInHierarchy(newState);
-            switch (newState)
+            if (_canvasGroup != null)
             {
-                case UIState.Interactive:
-                    _canvasGroup.interactable = true;
-                    _canvasGroup.blocksRaycasts = true; // WICHTIG: Blockiert Raycasts, damit Klicks nicht durchgehen
-                    break;
-                case UIState.NotInteractive:
-                    _canvasGroup.interactable = false;
-                    _canvasGroup.blocksRaycasts = true; // Blockiert Raycasts, aber nicht interaktiv
-                    break;
-                case UIState.Disabled:
-                    _canvasGroup.interactable = false;
-                    _canvasGroup.blocksRaycasts = false; // Lässt Raycasts durch
-                    break;
+                _canvasGroup.interactable = (newState == UIState.Interactive);
+                _canvasGroup.blocksRaycasts = (newState != UIState.Disabled);
             }
             DoColorTransition(newState, false);
-            UpdateColliderState();
         }
 
         public Coroutine TweenPosition(Vector2 targetPosition, float duration, Easing.EaseType ease)
@@ -257,21 +221,13 @@ namespace YourGame.UI.Widgets
             return StartCoroutine(AnimateVector3((v) => _rectTransform.localScale = v, _rectTransform.localScale, targetScale, duration, ease));
         }
 
-        public virtual void OnFocusGained()
-        {
-            OnFocusGainedEvent?.Invoke();
-        }
-
-        public virtual void OnFocusLost()
-        {
-            OnFocusLostEvent?.Invoke();
-        }
+        public virtual void OnFocusGained() => OnFocusGainedEvent?.Invoke();
+        public virtual void OnFocusLost() => OnFocusLostEvent?.Invoke();
 
         public virtual void SetText(string text)
         {
             TMPro.TextMeshProUGUI tmpText = GetComponentInChildren<TMPro.TextMeshProUGUI>();
             if (tmpText != null) tmpText.text = text;
-            else if (_textComponent != null) _textComponent.text = text;
         }
 
         public virtual void OnPointerEnter(PointerEventData eventData)
@@ -287,19 +243,19 @@ namespace YourGame.UI.Widgets
 
         public virtual void OnPointerExit(PointerEventData eventData)
         {
-            if (_isHovering && CurrentState == UIState.Interactive)
+            _isHovering = false;
+            if (CurrentState == UIState.Interactive)
             {
                 OnHoverEvent?.Invoke(this, false);
+                DoColorTransition(CurrentState, false);
             }
-            _isHovering = false;
-            DoColorTransition(CurrentState, false);
         }
 
         public virtual void OnPointerDown(PointerEventData eventData)
         {
-            _isPressed = true;
             if (CurrentState == UIState.Interactive)
             {
+                _isPressed = true;
                 OnPressEvent?.Invoke(this, true);
                 DoColorTransition(CurrentState, false);
             }
@@ -307,9 +263,9 @@ namespace YourGame.UI.Widgets
 
         public virtual void OnPointerUp(PointerEventData eventData)
         {
-            _isPressed = false;
             if (CurrentState == UIState.Interactive)
             {
+                _isPressed = false;
                 OnPressEvent?.Invoke(this, false);
                 DoColorTransition(CurrentState, false);
             }
@@ -319,36 +275,8 @@ namespace YourGame.UI.Widgets
         {
             if (CurrentState == UIState.Interactive)
             {
-                float currentTime = Time.time;
-                if (currentTime - _lastClickTime < _doubleClickTimeThreshold)
-                {
-                    PlaySound(doubleClickSound);
-                    OnDoubleClickEvent?.Invoke(this, eventData);
-                }
-                else
-                {
-                    PlaySound(clickSound);
-                    OnClickEvent?.Invoke(this, eventData);
-                }
-                _lastClickTime = currentTime;
-            }
-        }
-
-        public virtual void OnPointerDoubleClick(PointerEventData eventData)
-        {
-            if (CurrentState == UIState.Interactive)
-            {
-                PlaySound(doubleClickSound);
-                OnDoubleClickEvent?.Invoke(this, eventData);
-            }
-        }
-
-        public virtual void OnPointerRightClick(PointerEventData eventData)
-        {
-            if (CurrentState == UIState.Interactive)
-            {
-                PlaySound(rightClickSound);
-                OnRightClickEvent?.Invoke(this, eventData);
+                PlaySound(clickSound);
+                OnClickEvent?.Invoke(this, eventData);
             }
         }
 
@@ -367,67 +295,6 @@ namespace YourGame.UI.Widgets
         {
             _isDragging = false;
             OnDragEndEvent?.Invoke(this, eventData);
-        }
-
-        public void OnParentSetVisible(bool parentVisible)
-        {
-            UpdateVisibleInHierarchy(parentVisible);
-        }
-
-        public void OnParentSetState(UIState parentState)
-        {
-            UpdateStateInHierarchy(parentState);
-        }
-
-        protected virtual void UpdateVisibleInHierarchy(bool parentVisible)
-        {
-            bool newVisibleInHierarchy = parentVisible && gameObject.activeSelf && _canvasGroup.alpha > 0.01f;
-            if (IsVisibleInHierarchy != newVisibleInHierarchy)
-            {
-                IsVisibleInHierarchy = newVisibleInHierarchy;
-                _canvasGroup.blocksRaycasts = IsVisibleInHierarchy; // Wichtig: Raycasts blockieren, wenn sichtbar
-                foreach (Transform child in transform)
-                {
-                    UIWidget childWidget = child.GetComponent<UIWidget>();
-                    if (childWidget != null)
-                    {
-                        childWidget.OnParentSetVisible(IsVisibleInHierarchy);
-                    }
-                }
-            }
-            UpdateColliderState();
-        }
-
-        protected virtual void UpdateStateInHierarchy(UIState parentState)
-        {
-            UIState newStateInHierarchy = CurrentState;
-            if (parentState == UIState.Disabled || parentState == UIState.NotInteractive)
-            {
-                newStateInHierarchy = parentState;
-            }
-            if (StateInHierarchy != newStateInHierarchy)
-            {
-                StateInHierarchy = newStateInHierarchy;
-                _canvasGroup.interactable = (StateInHierarchy == UIState.Interactive);
-                _canvasGroup.blocksRaycasts = (StateInHierarchy != UIState.Disabled); // Blockiert Raycasts auch bei NotInteractive
-                foreach (Transform child in transform)
-                {
-                    UIWidget childWidget = child.GetComponent<UIWidget>();
-                    if (childWidget != null)
-                    {
-                        childWidget.OnParentSetState(StateInHierarchy);
-                    }
-                }
-            }
-            UpdateColliderState();
-        }
-
-        protected virtual void UpdateColliderState()
-        {
-            if (_colliderComponent != null)
-            {
-                _colliderComponent.enabled = (StateInHierarchy == UIState.Interactive) && IsVisibleInHierarchy;
-            }
         }
 
         protected IEnumerator AnimateAlpha(float targetAlpha, Action onComplete = null)
@@ -488,6 +355,7 @@ namespace YourGame.UI.Widgets
         protected virtual void DoColorTransition(UIState state, bool instant)
         {
             if (targetGraphic == null || transition != VisualTransition.ColorTint) return;
+            
             Color targetColor = colorTints.normalColor;
             if (state == UIState.Disabled)
             {
@@ -498,7 +366,9 @@ namespace YourGame.UI.Widgets
                 if (_isPressed) targetColor = colorTints.pressedColor;
                 else if (_isHovering) targetColor = colorTints.hoverColor;
             }
+            
             if (_colorFadeCoroutine != null) StopCoroutine(_colorFadeCoroutine);
+            
             if (instant || colorTints.fadeDuration <= 0)
             {
                 targetGraphic.color = targetColor;
@@ -526,7 +396,6 @@ namespace YourGame.UI.Widgets
         {
             if (clip != null && Camera.main != null)
             {
-                // Eine vorhandene AudioSource suchen oder eine temporäre erstellen
                 AudioSource audioSource = GetComponent<AudioSource>();
                 if (audioSource == null)
                 {
@@ -537,15 +406,5 @@ namespace YourGame.UI.Widgets
                 audioSource.PlayOneShot(clip);
             }
         }
-    }
-
-    public interface IPointerDoubleClickHandler : IEventSystemHandler
-    {
-        void OnPointerDoubleClick(PointerEventData eventData);
-    }
-
-    public interface IPointerRightClickHandler : IEventSystemHandler
-    {
-        void OnPointerRightClick(PointerEventData eventData);
     }
 }

@@ -1,4 +1,3 @@
-// Dateiname: UIRadialMenu.cs
 using UnityEngine;
 using System.Collections.Generic;
 
@@ -44,19 +43,18 @@ namespace YourGame.UI.Widgets
         private void ArrangeItems()
         {
             if (Items.Count == 0) return;
-
             float angleStep = 360f / Items.Count;
             for (int i = 0; i < Items.Count; i++)
             {
                 float currentAngle = (_startAngle - (i * angleStep)) * Mathf.Deg2Rad;
-                
                 float xPos = Mathf.Cos(currentAngle) * _radius;
                 float yPos = Mathf.Sin(currentAngle) * _radius;
 
                 UIWidget item = Items[i];
                 if (item != null)
                 {
-                    item.RectTransform.anchoredPosition = new Vector2(xPos, yPos);
+                    // KORREKTUR: Greift direkt auf die Komponente zu, um den Fehler zu vermeiden.
+                    item.GetComponent<RectTransform>().anchoredPosition = new Vector2(xPos, yPos);
                 }
             }
         }
