@@ -1,0 +1,3858 @@
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIChatBox : UIWidget
+    {
+        [Header("Chat Components")]
+        [SerializeField] private UIScrollList _messageList;
+        [SerializeField] private UIInputField _chatInput;
+        [SerializeField] private Button _sendButton;
+        // Optional: Tabs für verschiedene Kanäle (Global, Clan, Flüstern)
+
+        protected override void Awake()
+        {
+            base.Awake();
+            _chatInput.InputField.onSubmit.AddListener(SendMessage);
+            _sendButton?.onClick.AddListener(() => SendMessage(_chatInput.InputField.text));
+        }
+
+        public void AddMessage(string playerName, string message, Color nameColor)
+        {
+            // Ein neues Widget zur _messageList hinzufügen
+            var msgWidget = _messageList.AddWidget($"{playerName}_message");
+            // Hier würde man den Text formatieren (z.B. mit Rich Text)
+            msgWidget.SetText($"<color=#{ColorUtility.ToHtmlStringRGB(nameColor)}>{playerName}:</color> {message}");
+        }
+
+        private void SendMessage(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return;
+
+            // Hier Logik zum Senden der Nachricht an den Server
+            Debug.Log($"Sending message: {message}");
+
+            // Für Testzwecke die eigene Nachricht direkt hinzufügen
+            AddMessage("You", message, Color.yellow);
+            
+            _chatInput.SetText("");
+            _chatInput.InputField.ActivateInputField(); // Fokus beibehalten
+        }
+    }
+}// Dateiname: UINotification.cs
+using UnityEngine;
+using TMPro;
+using System.Collections;
+
+namespace YourGame.UI.Widgets
+{
+    // Erbt von UIWidget für Show/Hide-Animationen
+    public class UINotification : UIWidget
+    {
+        [Header("Notification Components")]
+        [SerializeField] private TextMeshProUGUI _titleText;
+        [SerializeField] private TextMeshProUGUI _messageText;
+        [SerializeField] private float _displayDuration = 3f;
+
+        // Startet ein selbstzerstörendes Coroutine
+        public void Launch()
+        {
+            Show();
+            StartCoroutine(WaitAndHide());
+        }
+
+        private IEnumerator WaitAndHide()
+        {
+            yield return new WaitForSeconds(_displayDuration);
+            Hide();
+        }
+
+        public void SetContent(string title, string message)
+        {
+            if (_titleText) _titleText.text = title;
+            if (_messageText) _messageText.text = message;
+        }
+    }
+}// Dateiname: UIWidgetManager.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIWidgetManager : MonoBehaviour
+    {
+        private static UIWidgetManager _instance;
+        private static readonly object _lock = new object();
+        private static bool _isShuttingDown = false;
+
+        public static UIWidgetManager Instance
+        {
+            get
+            {
+                if (_isShuttingDown)
+                {
+                    Debug.LogWarning("[UIWidgetManager] Instance called during application quit. Returning null.");
+                    return null;
+                }
+
+                lock (_lock)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = FindObjectOfType<UIWidgetManager>();
+                        if (_instance == null)
+                        {
+                            GameObject managerGO = new GameObject("UIWidgetManager_AutoCreated");
+                            _instance = managerGO.AddComponent<UIWidgetManager>();
+                        }
+                    }
+                    return _instance;
+                }
+            }
+        }
+
+        private readonly Dictionary<string, List<UIWidget>> _widgetCache = new Dictionary<string, List<UIWidget>>();
+        
+        // Event für Cursor-Änderungen
+        public static event Action<string> OnCursorChanged;
+        private static string _currentCursorName = "Arrow";
+        private static bool _isExclusiveCursorActive = false;
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            _instance = this;
+            _isShuttingDown = false; // Wichtig für Szenen-Neuladen
+            DontDestroyOnLoad(gameObject);
+        }
+
+        private void OnEnable()
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            SceneManager.sceneUnloaded += OnSceneUnloaded;
+            PopulateWidgetCache();
+        }
+
+        private void OnDisable()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            SceneManager.sceneUnloaded -= OnSceneUnloaded;
+            _widgetCache.Clear();
+        }
+        
+        private void OnApplicationQuit()
+        {
+            _isShuttingDown = true;
+        }
+
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            PopulateWidgetCache();
+        }
+
+        private void OnSceneUnloaded(Scene scene)
+        {
+            var widgetsToRemove = _widgetCache.SelectMany(kv => kv.Value)
+                                              .Where(w => w != null && w.gameObject.scene == scene)
+                                              .ToList();
+
+            foreach (var widget in widgetsToRemove)
+            {
+                UnregisterWidget(widget);
+            }
+        }
+
+        private void PopulateWidgetCache()
+        {
+            _widgetCache.Clear();
+            var allWidgetsInLoadedScenes = FindObjectsOfType<UIWidget>(true);
+            foreach (var widget in allWidgetsInLoadedScenes)
+            {
+                if (widget.gameObject.scene.isLoaded)
+                {
+                    RegisterWidget(widget);
+                }
+            }
+        }
+
+        public void RegisterWidget(UIWidget widget)
+        {
+            if (widget == null || string.IsNullOrEmpty(widget.Name))
+            {
+                return;
+            }
+            if (!_widgetCache.ContainsKey(widget.Name))
+            {
+                _widgetCache[widget.Name] = new List<UIWidget>();
+            }
+            if (!_widgetCache[widget.Name].Contains(widget))
+            {
+                _widgetCache[widget.Name].Add(widget);
+            }
+        }
+
+        public void UnregisterWidget(UIWidget widget)
+        {
+            if (widget == null || string.IsNullOrEmpty(widget.Name)) return;
+            if (_widgetCache.ContainsKey(widget.Name))
+            {
+                _widgetCache[widget.Name].Remove(widget);
+                if (_widgetCache[widget.Name].Count == 0)
+                {
+                    _widgetCache.Remove(widget.Name);
+                }
+            }
+        }
+
+        public static T Find<T>(string name) where T : UIWidget
+        {
+            if (Instance != null && Instance._widgetCache.TryGetValue(name, out var widgets))
+            {
+                return widgets.OfType<T>().FirstOrDefault();
+            }
+            return null;
+        }
+
+        public static List<T> FindAll<T>() where T : UIWidget
+        {
+            List<T> allOfType = new List<T>();
+            if (Instance != null)
+            {
+                 foreach (var list in Instance._widgetCache.Values)
+                {
+                    allOfType.AddRange(list.OfType<T>());
+                }
+            }
+            return allOfType.Distinct().ToList();
+        }
+        
+        public static void SetExclusive(UIWidget widget, Color maskColor)
+        {
+            if (Instance == null) return;
+            Debug.Log($"[UIWidgetManager] Widget '{widget?.Name}' set as exclusive with mask color {maskColor}.");
+            UIOverlayManager.Instance.ActivateExclusiveOverlay(maskColor);
+        }
+
+        public static void RemoveExclusive(UIWidget widget)
+        {
+            if (Instance == null) return;
+            Debug.Log($"[UIWidgetManager] Exclusive status removed for widget '{widget?.Name}'.");
+            UIOverlayManager.Instance.DeactivateExclusiveOverlay();
+        }
+        
+        public static void SetDefaultCursor(string cursorName = "Arrow")
+        {
+            if (_isExclusiveCursorActive) return;
+            _currentCursorName = cursorName;
+            OnCursorChanged?.Invoke(_currentCursorName);
+        }
+
+        public static void SetExclusiveLoadingGear(bool status)
+        {
+            _isExclusiveCursorActive = status;
+            if (status)
+            {
+                OnCursorChanged?.Invoke("Loading");
+            }
+            else
+            {
+                OnCursorChanged?.Invoke(_currentCursorName);
+            }
+        }
+    }
+}// Dateiname: UISkillTree.cs (Final Korrigiert)
+using UnityEngine;
+using TMPro;
+using System.Collections.Generic;
+
+namespace YourGame.UI.Widgets
+{
+    public class UISkillTree : UIWidget
+    {
+        private TextMeshProUGUI _skillPointsText;
+        private List<UISkillNode> _allNodes;
+        
+        // KORREKTUR: Wir speichern das GameObject des Prefabs, nicht die Komponente.
+        private GameObject _lineRendererPrefabGO;
+
+        private int _availableSkillPoints = 10;
+        private List<UILineRenderer> _lines = new List<UILineRenderer>();
+
+        // KORREKTUR: Die Signatur wurde an das GameObject-Prefab angepasst.
+        public void Initialize(TextMeshProUGUI pointsText, List<UISkillNode> nodes, GameObject linePrefabGO)
+        {
+            _skillPointsText = pointsText;
+            _allNodes = nodes;
+            _lineRendererPrefabGO = linePrefabGO;
+
+            DrawConnectionLines();
+            RefreshTree();
+        }
+
+        public void TryUnlockNode(UISkillNode node)
+        {
+            if (node.IsUnlocked || _availableSkillPoints < node.cost) return;
+
+            bool dependenciesMet = true;
+            foreach (var dep in node.dependencies)
+            {
+                if (!dep.IsUnlocked)
+                {
+                    dependenciesMet = false;
+                    break;
+                }
+            }
+
+            if (dependenciesMet)
+            {
+                _availableSkillPoints -= node.cost;
+                node.UnlockForDemo();
+                Debug.Log($"Skill '{node.skillName}' freigeschaltet!");
+                RefreshTree();
+            }
+        }
+
+        private void RefreshTree()
+        {
+            if (_skillPointsText != null)
+                _skillPointsText.text = $"Verfügbare Punkte: {_availableSkillPoints}";
+            
+            if (_allNodes == null) return;
+            foreach (var node in _allNodes)
+            {
+                if (node == null) continue;
+                bool canUnlock = true;
+                foreach (var dep in node.dependencies)
+                {
+                    if (dep == null || !dep.IsUnlocked)
+                    {
+                        canUnlock = false;
+                        break;
+                    }
+                }
+                node.SetState(node.IsUnlocked, canUnlock);
+            }
+        }
+
+        private void DrawConnectionLines()
+        {
+            foreach(var line in _lines) { if(line != null) Destroy(line.gameObject); }
+            _lines.Clear();
+            
+            if (_allNodes == null || _lineRendererPrefabGO == null) return;
+
+            foreach (var node in _allNodes)
+            {
+                if (node == null) continue;
+                foreach (var dep in node.dependencies)
+                {
+                    if (dep == null) continue;
+
+                    // KORREKTUR: Wir instanziieren das GameObject, stellen sicher, dass es aktiv ist,
+                    // und holen uns DANN die Komponente.
+                    GameObject newLineGO = Instantiate(_lineRendererPrefabGO, transform);
+                    newLineGO.SetActive(true);
+                    UILineRenderer line = newLineGO.GetComponent<UILineRenderer>();
+                    
+                    if (line != null)
+                    {
+                        line.transform.SetAsFirstSibling();
+                        line.SetPositions(node.RectTransform.anchoredPosition, dep.RectTransform.anchoredPosition);
+                        _lines.Add(line);
+                    }
+                }
+            }
+        }
+    }
+}// Dateiname: UITab.cs
+using UnityEngine;
+
+namespace YourGame.UI.Widgets
+{
+    // Erbt von UIButton, um alle Button-Funktionen zu erhalten
+    public class UITab : UIButton
+    {
+        [Header("Tab Settings")]
+        [Tooltip("Das Panel, das dieser Tab aktivieren soll.")]
+        [SerializeField] private GameObject _tabPage;
+
+        public GameObject TabPage => _tabPage;
+    }
+}using UnityEngine;
+using TMPro;
+using System.Collections.Generic;
+using YourGame.Quests;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIQuestTracker : UIWidget
+    {
+        [Header("Quest Tracker Components")]
+        [SerializeField] private TextMeshProUGUI _questTitleText;
+        [SerializeField] private RectTransform _objectivesContainer;
+        [SerializeField] private GameObject _objectiveTemplate; // Ein Prefab für eine einzelne Ziel-Zeile
+
+        private List<GameObject> _activeObjectives = new List<GameObject>();
+
+        protected override void Awake()
+        {
+            base.Awake();
+            if (_objectiveTemplate != null) _objectiveTemplate.SetActive(false);
+            // QuestManager.OnQuestUpdated += UpdateTracker; // An ein Event binden
+        }
+
+        public void UpdateTracker(Quest currentQuest) // 'Quest' wäre eine eigene Datenklasse
+        {
+            // Alte Ziele löschen
+            foreach (var obj in _activeObjectives)
+            {
+                Destroy(obj);
+            }
+            _activeObjectives.Clear();
+
+            if (currentQuest == null || currentQuest.IsComplete)
+            {
+                Hide();
+                return;
+            }
+
+            _questTitleText.text = currentQuest.Title;
+
+            foreach (var objective in currentQuest.Objectives)
+            {
+                GameObject newObjectiveGO = Instantiate(_objectiveTemplate, _objectivesContainer);
+                var objectiveText = newObjectiveGO.GetComponentInChildren<TextMeshProUGUI>();
+                if (objectiveText != null)
+                {
+                    // z.B. "Sammle 5/10 Fische"
+                    objectiveText.text = $"{objective.Description} ({objective.CurrentProgress}/{objective.RequiredAmount})";
+                }
+                newObjectiveGO.SetActive(true);
+                _activeObjectives.Add(newObjectiveGO);
+            }
+            Show();
+        }
+    }
+}// Dateiname: UIComparisonTooltip.cs (Final Korrigiert)
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIComparisonTooltip : UIWidget
+    {
+        public static UIComparisonTooltip Instance { get; private set; }
+
+        [Header("Current Item Panel")]
+        [SerializeField] private GameObject _currentItemPanel;
+        [SerializeField] private TextMeshProUGUI _currentItemName;
+        [SerializeField] private Image _currentItemIcon;
+        [SerializeField] private TextMeshProUGUI _currentItemAttack;
+        [SerializeField] private TextMeshProUGUI _currentItemDefense;
+
+        [Header("New Item Panel")]
+        [SerializeField] private GameObject _newItemPanel;
+        [SerializeField] private TextMeshProUGUI _newItemName;
+        [SerializeField] private Image _newItemIcon;
+        [SerializeField] private TextMeshProUGUI _newItemAttack;
+        [SerializeField] private TextMeshProUGUI _newItemDefense;
+
+        protected override void Awake()
+        {
+            base.Awake();
+            if (Instance == null) { Instance = this; } else { Destroy(gameObject); }
+            Hide();
+        }
+
+        public void ShowComparison(EquipmentData newItemData, EquipmentData currentItemData)
+        {
+            if (newItemData == null) return;
+            
+            // --- Neues Item befüllen ---
+            _newItemPanel.SetActive(true);
+            _newItemName.text = newItemData.itemName;
+            _newItemIcon.sprite = newItemData.icon;
+
+            // --- Aktuelles Item befüllen (oder Panel ausblenden) ---
+            if (currentItemData != null)
+            {
+                _currentItemPanel.SetActive(true);
+                _currentItemName.text = currentItemData.itemName;
+                _currentItemIcon.sprite = currentItemData.icon;
+                
+                // Stat-Vergleich
+                CompareAndSetStat(_newItemAttack, _currentItemAttack, newItemData.attack, currentItemData.attack);
+                CompareAndSetStat(_newItemDefense, _currentItemDefense, newItemData.defense, currentItemData.defense);
+            }
+            else
+            {
+                _currentItemPanel.SetActive(false);
+                // Stats ohne Vergleich anzeigen
+                _newItemAttack.text = newItemData.attack.ToString();
+                _newItemDefense.text = newItemData.defense.ToString();
+                _newItemAttack.color = Color.white;
+                _newItemDefense.color = Color.white;
+            }
+            
+            this.RectTransform.position = Input.mousePosition;
+            Show();
+        }
+
+        private void CompareAndSetStat(TextMeshProUGUI newStatText, TextMeshProUGUI currentStatText, int newValue, int currentValue)
+        {
+            currentStatText.text = currentValue.ToString();
+            newStatText.text = newValue.ToString();
+
+            if (newValue > currentValue)
+            {
+                newStatText.color = Color.green;
+            }
+            else if (newValue < currentValue)
+            {
+                newStatText.color = Color.red;
+            }
+            else
+            {
+                newStatText.color = Color.white;
+            }
+        }
+    }
+}// Dateiname: UIKantine.cs (Korrigiert)
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+using System.Collections.Generic;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIKantine : UIWidget
+    {
+        private List<UIInventorySlot> _ingredientSlots;
+        private TextMeshProUGUI _resultBuffsText;
+        private UIButton _cookButton;
+        private UIScrollList _ingredientSelectionList;
+
+        public void Initialize(List<UIInventorySlot> slots, TextMeshProUGUI resultText, UIButton cookButton, UIScrollList selectionList)
+        {
+            _ingredientSlots = slots;
+            _resultBuffsText = resultText;
+            _cookButton = cookButton;
+            _ingredientSelectionList = selectionList;
+
+            foreach (var slot in _ingredientSlots)
+            {
+                slot.OnItemDropped.AddListener((draggable) => UpdateResultingBuffs());
+            }
+
+            _cookButton.OnClickEvent.AddListener((w, d) => Cook());
+            UpdateResultingBuffs();
+        }
+
+        public void PopulateIngredients(List<IngredientData> allIngredients)
+        {
+            if (_ingredientSelectionList == null) return;
+            _ingredientSelectionList.ClearItems();
+
+            foreach (var ingredient in allIngredients)
+            {
+                var itemWidget = _ingredientSelectionList.AddWidget(ingredient.itemName, ingredient);
+
+                // KORREKTUR: GetComponent statt AddComponent verwenden.
+                var image = itemWidget.gameObject.GetComponent<Image>();
+                if (image != null)
+                {
+                    image.sprite = ingredient.icon;
+                }
+                
+                itemWidget.gameObject.AddComponent<UIDraggable>();
+            }
+        }
+
+        private void UpdateResultingBuffs()
+        {
+            var totalBuffs = new Dictionary<BuffType, int>();
+            
+            foreach (var slot in _ingredientSlots)
+            {
+                var draggable = slot.GetComponentInChildren<UIDraggable>();
+                if (draggable != null && draggable.UserData is IngredientData ingredient)
+                {
+                    foreach (var buff in ingredient.buffs)
+                    {
+                        if (!totalBuffs.ContainsKey(buff.type))
+                        {
+                            totalBuffs[buff.type] = 0;
+                        }
+                        totalBuffs[buff.type] += buff.value;
+                    }
+                }
+            }
+
+            if (totalBuffs.Count == 0)
+            {
+                _resultBuffsText.text = "Wähle Zutaten aus...";
+                _cookButton.SetState(UIState.Disabled);
+                return;
+            }
+
+            string buffsText = "Resultierende Boni:\n";
+            foreach (var buffEntry in totalBuffs)
+            {
+                buffsText += $"• {buffEntry.Key} +{buffEntry.Value}\n";
+            }
+
+            _resultBuffsText.text = buffsText;
+            _cookButton.SetState(UIState.Interactive);
+        }
+
+        private void Cook()
+        {
+            if (_cookButton.CurrentState == UIState.Disabled) return;
+
+            Debug.Log("Mahlzeit wird gekocht! Folgende Boni sind jetzt aktiv:");
+            Debug.Log(_resultBuffsText.text.Replace("Resultierende Boni:\n", "").Trim());
+        }
+    }
+}// Dateiname: UIButton.cs
+using UnityEngine;
+using UnityEngine.EventSystems;
+using YourGame.UI.Widgets;
+
+// Ein einfacher Button, der auf Hover und Press reagiert
+public class UIButton : UIWidget
+{
+    public override void OnPointerEnter(PointerEventData eventData)
+    {
+        base.OnPointerEnter(eventData);
+        if (CurrentState == UIState.Interactive)
+            transform.localScale = Vector3.one * 1.1f; // Beispiel-Effekt
+    }
+
+    public override void OnPointerExit(PointerEventData eventData)
+    {
+        base.OnPointerExit(eventData);
+        transform.localScale = Vector3.one; // Effekt zurücksetzen
+    }
+
+    public override void OnPointerDown(PointerEventData eventData)
+    {
+        base.OnPointerDown(eventData);
+        if (CurrentState == UIState.Interactive)
+            transform.localScale = Vector3.one * 0.95f; // Beispiel-Effekt
+    }
+
+    public override void OnPointerUp(PointerEventData eventData)
+    {
+        base.OnPointerUp(eventData);
+        if (CurrentState == UIState.Interactive && _isHovering) // Nur auf Hover-Größe zurück, wenn die Maus noch über dem Button ist
+            transform.localScale = Vector3.one * 1.1f;
+        else
+            transform.localScale = Vector3.one;
+    }
+}// Dateiname: UICraftingPanel.cs (Final Korrigiert)
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+using System.Collections.Generic;
+
+namespace YourGame.UI.Widgets
+{
+    public class UICraftingPanel : UIWidget
+    {
+        private UIScrollList _recipeList;
+        private Image _resultIcon;
+        private TextMeshProUGUI _resultName;
+        private RectTransform _materialsContainer;
+        private GameObject _materialTemplate;
+        private UIButton _craftButton;
+
+        private CraftingRecipe _selectedRecipe;
+
+        // Die Zuweisungen erfolgen jetzt über Initialize
+        public void Initialize(UIScrollList recipeList, Image resultIcon, TextMeshProUGUI resultName, RectTransform materialsContainer, GameObject materialTemplate, UIButton craftButton)
+        {
+            _recipeList = recipeList;
+            _resultIcon = resultIcon;
+            _resultName = resultName;
+            _materialsContainer = materialsContainer;
+            _materialTemplate = materialTemplate;
+            _craftButton = craftButton;
+
+            _recipeList.OnItemSelected.AddListener(OnRecipeSelected);
+            _craftButton.OnClickEvent.AddListener((w, d) => CraftSelectedItem());
+            if (_materialTemplate != null) _materialTemplate.SetActive(false);
+        }
+
+        public void PopulateRecipes(List<CraftingRecipe> availableRecipes)
+        {
+            _recipeList.ClearItems();
+            foreach (var recipe in availableRecipes)
+            {
+                var widget = _recipeList.AddWidget(recipe.resultItem.itemName, recipe);
+                widget.SetText(recipe.resultItem.itemName);
+            }
+        }
+
+        private void OnRecipeSelected(UIWidget selectedWidget)
+        {
+            if (selectedWidget == null || !(selectedWidget.UserData is CraftingRecipe)) return;
+            
+            _selectedRecipe = selectedWidget.UserData as CraftingRecipe;
+            
+            _resultIcon.sprite = _selectedRecipe.resultItem.icon;
+            _resultName.text = _selectedRecipe.resultItem.itemName;
+
+            foreach (Transform child in _materialsContainer)
+            {
+                if (child.gameObject != _materialTemplate) Destroy(child.gameObject);
+            }
+
+            bool canCraft = CheckMaterialAvailability();
+            _craftButton.SetState(canCraft ? UIState.Interactive : UIState.Disabled);
+        }
+
+        protected virtual bool CheckMaterialAvailability()
+        {
+            foreach (var material in _selectedRecipe.requiredMaterials)
+            {
+                GameObject materialGO = Instantiate(_materialTemplate, _materialsContainer);
+                int ownedAmount = material.quantity;
+
+                materialGO.transform.Find("Icon").GetComponent<Image>().sprite = material.item.icon;
+                materialGO.transform.Find("Name").GetComponent<TextMeshProUGUI>().text = material.item.itemName;
+                var amountText = materialGO.transform.Find("Amount").GetComponent<TextMeshProUGUI>();
+                amountText.text = $"{ownedAmount} / {material.quantity}";
+                amountText.color = Color.white;
+                
+                materialGO.SetActive(true);
+            }
+            return true;
+        }
+
+        private void CraftSelectedItem()
+        {
+            if (_selectedRecipe == null || _craftButton.CurrentState == UIState.Disabled) return;
+            Debug.Log($"Stelle her: {_selectedRecipe.resultItem.itemName}");
+        }
+    }
+}// Dateiname: UISlider.cs (Korrigiert)
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+
+namespace YourGame.UI.Widgets
+{
+    public class UISlider : UIWidget
+    {
+        [Header("Slider Components")]
+        [SerializeField] private RectTransform _fillRect;
+        [SerializeField] private RectTransform _handleRect;
+
+        [Header("Slider Settings")]
+        [SerializeField, Range(0f, 1f)] private float _value = 1f;
+        public UnityEvent<float> OnValueChanged;
+
+        private RectTransform _backgroundRect;
+
+        public float Value
+        {
+            get => _value;
+            set
+            {
+                float clampedValue = Mathf.Clamp01(value);
+                if (_value == clampedValue) return;
+                _value = clampedValue;
+                UpdateVisuals();
+                OnValueChanged?.Invoke(_value);
+            }
+        }
+
+        protected override void Awake()
+        {
+            base.Awake();
+
+            // KORREKTUR: Event initialisieren.
+            if (OnValueChanged == null) OnValueChanged = new UnityEvent<float>();
+            
+            _backgroundRect = GetComponent<RectTransform>();
+            UpdateVisuals();
+        }
+
+        public override void OnDrag(PointerEventData eventData)
+        {
+            base.OnDrag(eventData);
+            if (CurrentState == UIState.Interactive)
+            {
+                UpdateValueFromInput(eventData);
+            }
+        }
+
+        public override void OnPointerDown(PointerEventData eventData)
+        {
+            base.OnPointerDown(eventData);
+            if (CurrentState == UIState.Interactive)
+            {
+                UpdateValueFromInput(eventData);
+            }
+        }
+
+        private void UpdateValueFromInput(PointerEventData eventData)
+        {
+            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_backgroundRect, eventData.position, eventData.pressEventCamera, out Vector2 localPoint))
+            {
+                float sliderWidth = _backgroundRect.rect.width;
+                float newValue = (localPoint.x - _backgroundRect.rect.xMin) / sliderWidth;
+                Value = Mathf.Clamp01(newValue);
+            }
+        }
+
+        private void UpdateVisuals()
+        {
+            if (_fillRect)
+            {
+                _fillRect.anchorMax = new Vector2(_value, _fillRect.anchorMax.y);
+            }
+            if (_handleRect)
+            {
+                _handleRect.anchorMin = new Vector2(_value, _handleRect.anchorMin.y);
+                _handleRect.anchorMax = new Vector2(_value, _handleRect.anchorMax.y);
+            }
+        }
+    }
+}// Dateiname: IngredientData.cs
+using UnityEngine;
+using System.Collections.Generic;
+
+// Enum für alle möglichen Buff-Typen
+public enum BuffType { Gesundheit, Ausdauer, Angriff, Verteidigung, Geschwindigkeit }
+
+// Eine Struktur, die einen einzelnen Buff definiert
+[System.Serializable]
+public struct Buff
+{
+    public BuffType type;
+    public int value;
+}
+
+[CreateAssetMenu(fileName = "New Ingredient", menuName = "UI-Demo/Ingredient Data")]
+public class IngredientData : ItemData
+{
+    public enum IngredientCategory { Fleisch, Fisch, Gemüse }
+    public IngredientCategory category;
+    
+    [Header("Ingredient Boni")]
+    // Jede Zutat hat eine Liste von Boni, die sie gewährt.
+    public List<Buff> buffs = new List<Buff>();
+}// Dateiname: EquipmentData.cs
+using UnityEngine;
+
+[CreateAssetMenu(fileName = "New EquipmentData", menuName = "UI-Demo/Equipment Data")]
+public class EquipmentData : ItemData
+{
+    [Header("Equipment Stats")]
+    public int attack;
+    public int defense;
+    public int speed;
+}// Dateiname: MonsterData.cs
+using UnityEngine;
+using System.Collections.Generic;
+
+[System.Serializable]
+public struct MonsterLoot
+{
+    public ItemData item;
+    public string dropChance; // z.B. "Häufig", "Selten"
+}
+
+[CreateAssetMenu(fileName = "New MonsterData", menuName = "UI-Demo/Monster Data")]
+public class MonsterData : ScriptableObject
+{
+    public string monsterName;
+    public Sprite monsterIcon;
+    [TextArea] public string description;
+    public string habitat;
+    
+    public List<string> weaknesses; // z.B. "Feuer", "Eis"
+    public List<MonsterLoot> lootTable;
+}// Dateiname: CraftingRecipe.cs
+using UnityEngine;
+using System.Collections.Generic;
+
+// Annahme: Es gibt eine Basis-Datenklasse für Items
+// [CreateAssetMenu(fileName = "New Item", menuName = "Game/Item")]
+// public class ItemData : ScriptableObject { public string itemName; public Sprite icon; }
+
+[System.Serializable]
+public class RequiredMaterial
+{
+    public ItemData item;
+    public int quantity;
+}
+
+[CreateAssetMenu(fileName = "New Recipe", menuName = "Game/Crafting Recipe")]
+public class CraftingRecipe : ScriptableObject
+{
+    public ItemData resultItem;
+    public int resultQuantity = 1;
+    public List<RequiredMaterial> requiredMaterials;
+}// Dateiname: ItemData.cs
+using UnityEngine;
+
+[CreateAssetMenu(fileName = "New ItemData", menuName = "UI-Demo/Item Data")]
+public class ItemData : ScriptableObject
+{
+    public string itemName;
+    public Sprite icon;
+    [TextArea] public string description;
+}// Dateiname: UIDropTarget.cs (Korrigiert)
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.EventSystems;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIDropTarget : UIWidget, IDropHandler
+    {
+        public UnityEvent<UIDraggable> OnItemDropped;
+
+        // KORREKTUR: Wir fügen eine Awake-Methode hinzu, um das Event zu initialisieren.
+        protected override void Awake()
+        {
+            base.Awake();
+            if (OnItemDropped == null)
+            {
+                OnItemDropped = new UnityEvent<UIDraggable>();
+            }
+        }
+
+        public void OnDrop(PointerEventData eventData)
+        {
+            if (eventData.pointerDrag != null)
+            {
+                var draggable = eventData.pointerDrag.GetComponent<UIDraggable>();
+                if (draggable != null)
+                {
+                    // Das Event wird hier sicher aufgerufen
+                    OnItemDropped?.Invoke(draggable);
+                    
+                    // Die Logik, das Item zum Kind zu machen, sollte vom Listener gesteuert werden,
+                    // nicht vom DropTarget selbst, um es flexibler zu machen.
+                    // Beispiel: draggable.transform.SetParent(transform, true);
+                }
+            }
+        }
+    }
+}// Dateiname: UIDraggable.cs
+using UnityEngine;
+using UnityEngine.EventSystems;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIDraggable : UIWidget
+    {
+        private Vector2 _offset;
+        private Transform _originalParent;
+        private Canvas _rootCanvas;
+
+        protected override void Awake()
+        {
+            base.Awake();
+            _rootCanvas = GetComponentInParent<Canvas>();
+        }
+
+        public override void OnBeginDrag(PointerEventData eventData)
+        {
+            base.OnBeginDrag(eventData);
+            _originalParent = transform.parent;
+            // Verschiebe das Objekt auf die oberste Ebene des Canvas, damit es über allem gerendert wird
+            transform.SetParent(_rootCanvas.transform, true);
+            
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_rectTransform, eventData.position, eventData.pressEventCamera, out _offset);
+            _canvasGroup.blocksRaycasts = false; // Erlaube Raycasts, das DropTarget unter dem Mauszeiger zu treffen
+        }
+
+        public override void OnDrag(PointerEventData eventData)
+        {
+            base.OnDrag(eventData);
+            _rectTransform.anchoredPosition = eventData.position / _rootCanvas.scaleFactor - _offset;
+        }
+
+        public override void OnEndDrag(PointerEventData eventData)
+        {
+            base.OnEndDrag(eventData);
+            _canvasGroup.blocksRaycasts = true;
+
+            // Wenn es kein gültiges DropTarget gab, kehre zur ursprünglichen Position zurück.
+            // UIDropTarget wird das Parenting selbst übernehmen, wenn der Drop erfolgreich war.
+            if (transform.parent == _rootCanvas.transform)
+            {
+                transform.SetParent(_originalParent, true);
+                // Optional: Tweene zurück zur Startposition
+                TweenPosition(Vector2.zero, 0.1f, Easing.EaseType.EaseOutQuad);
+            }
+        }
+    }
+}// Dateiname: UIActionSlot.cs
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIActionSlot : UIDropTarget
+    {
+        [Header("Action Slot Components")]
+        [SerializeField] private Image _icon;
+        [SerializeField] private Image _cooldownOverlay;
+        [SerializeField] private TextMeshProUGUI _keybindText;
+        [SerializeField] public KeyCode ActivationKey = KeyCode.None;
+
+        private Coroutine _cooldownCoroutine;
+        
+        protected override void Awake()
+        {
+            base.Awake();
+            if (ActivationKey != KeyCode.None && UIInputHandler.Instance != null)
+            {
+                UIInputHandler.Instance.RegisterToggleKey(ActivationKey, this);
+            }
+            
+            OnClickEvent.AddListener((widget, data) => TriggerAction());
+            
+            // NEU: Listener für das Drop-Event hinzufügen, um Items zuzuweisen.
+            OnItemDropped.AddListener(AssignItemFromDrag);
+        }
+
+        // NEU: Diese Methode wird aufgerufen, wenn ein UIDraggable auf diesen Slot gezogen wird.
+        private void AssignItemFromDrag(UIDraggable draggable)
+        {
+            if (draggable == null) return;
+
+            // Prüfen, ob die UserData ein ItemData-Objekt sind.
+            if (draggable.UserData is ItemData itemData)
+            {
+                Debug.Log($"Item '{itemData.itemName}' wurde auf Slot '{name}' gezogen. Weise Icon zu.");
+                Assign(itemData.icon);
+                
+                // Das UserData-Feld des Slots selbst wird ebenfalls gesetzt,
+                // um zu wissen, welche Aktion dieser Slot nun repräsentiert.
+                this.UserData = itemData;
+            }
+        }
+        
+        public void Initialize()
+        {
+            if (_keybindText) _keybindText.text = ActivationKey.ToString().Replace("Alpha", "");
+            if (_icon != null) _icon.enabled = false;
+            if (_cooldownOverlay != null) _cooldownOverlay.fillAmount = 0;
+        }
+
+        public void Assign(Sprite newIcon)
+        {
+            if (_icon == null) return;
+            _icon.sprite = newIcon;
+            _icon.enabled = true;
+        }
+
+        public void StartCooldown(float duration)
+        {
+            if (_cooldownCoroutine != null) StopCoroutine(_cooldownCoroutine);
+            _cooldownCoroutine = StartCoroutine(CooldownRoutine(duration));
+        }
+
+        private System.Collections.IEnumerator CooldownRoutine(float duration)
+        {
+            float timer = duration;
+            if (_cooldownOverlay != null) _cooldownOverlay.fillAmount = 1;
+            
+            while (timer > 0)
+            {
+                timer -= Time.deltaTime;
+                if (_cooldownOverlay != null) _cooldownOverlay.fillAmount = timer / duration;
+                yield return null;
+            }
+            
+            if (_cooldownOverlay != null) _cooldownOverlay.fillAmount = 0;
+            _cooldownCoroutine = null;
+        }
+
+        public void TriggerAction()
+        {
+            if (_icon == null || !_icon.enabled)
+            {
+                Debug.Log($"Slot {name} ist leer. Aktion nicht ausgelöst.");
+                return;
+            }
+
+            if (_cooldownCoroutine != null)
+            {
+                Debug.Log($"Aktion auf Slot {name} ist noch auf Cooldown.");
+                return;
+            }
+            
+            Debug.Log($"Aktion auf Slot {name} ausgelöst!");
+            StartCooldown(5f);
+        }
+
+        public override void Toggle()
+        {
+            TriggerAction();
+        }
+
+        protected override void OnDisable()
+        {
+            base.OnDisable();
+            if (ActivationKey != KeyCode.None && UIInputHandler.Instance != null)
+            {
+                UIInputHandler.Instance.UnregisterToggleKey(ActivationKey, this);
+            }
+        }
+    }
+}// Dateiname: UIInputField.cs
+using UnityEngine;
+using TMPro;
+
+namespace YourGame.UI.Widgets
+{
+    [RequireComponent(typeof(TMP_InputField))]
+    public class UIInputField : UIWidget
+    {
+        private TMP_InputField _inputField;
+        public TMP_InputField InputField => _inputField;
+
+        protected override void Awake()
+        {
+            _inputField = GetComponent<TMP_InputField>();
+            base.Awake(); // Ruft Awake von UIWidget auf, NACHDEM _inputField initialisiert wurde
+
+            // Leite Events vom InputField an das UIInputHandler-Fokussystem weiter
+            _inputField.onSelect.AddListener(delegate { UIInputHandler.Instance?.SetFocus(this); });
+            _inputField.onDeselect.AddListener(delegate { if(UIInputHandler.Instance?.FocusedWidget == this) UIInputHandler.Instance.SetFocus(null); });
+        }
+
+        // KORREKTUR: "override" hinzugefügt
+        public override void OnFocusGained()
+        {
+            base.OnFocusGained();
+            _inputField.ActivateInputField();
+        }
+        
+        // KORREKTUR: "override" hinzugefügt (gute Praxis, auch wenn hier leer)
+        public override void OnFocusLost()
+        {
+            base.OnFocusLost();
+            // Hier könnte man z.B. visuelles Feedback für den Fokusverlust hinzufügen
+        }
+        
+        public override void SetText(string text)
+        {
+            if (_inputField != null)
+            {
+                _inputField.text = text;
+            }
+        }
+    }
+}// Dateiname: UIModalDialog.cs (Korrigiert)
+using UnityEngine;
+using UnityEngine.Events;
+using YourGame.UI.Widgets;
+
+namespace YourGame.UI
+{
+    public class UIModalDialog : UIWidget
+    {
+        [Header("Modal Dialog Components")]
+        [SerializeField] private UIWidget titleWidget;
+        [SerializeField] private UIWidget messageWidget;
+        [SerializeField] private UIButton okButton;
+        [SerializeField] private UIButton cancelButton;
+        [SerializeField] private UIButton closeButton;
+
+        public UnityEvent OnOK;
+        public UnityEvent OnCancel;
+
+        protected override void Awake()
+        {
+            base.Awake();
+
+            // KORREKTUR: Events initialisieren, um NullReferenceException zu vermeiden.
+            if (OnOK == null) OnOK = new UnityEvent();
+            if (OnCancel == null) OnCancel = new UnityEvent();
+
+            if (okButton) okButton.OnClickEvent.AddListener((w, d) => { OnOK?.Invoke(); Hide(); });
+            if (cancelButton) cancelButton.OnClickEvent.AddListener((w, d) => { OnCancel?.Invoke(); Hide(); });
+            if (closeButton) closeButton.OnClickEvent.AddListener((w, d) => { OnCancel?.Invoke(); Hide(); });
+        }
+
+        public void ShowDialog(string title, string message, UnityAction onOkAction, UnityAction onCancelAction = null)
+        {
+            if (titleWidget) titleWidget.SetText(title);
+            if (messageWidget) messageWidget.SetText(message);
+            
+            OnOK.RemoveAllListeners();
+            OnCancel.RemoveAllListeners();
+
+            if (onOkAction != null) OnOK.AddListener(onOkAction);
+            
+            if (onCancelAction != null) {
+                OnCancel.AddListener(onCancelAction);
+                cancelButton?.gameObject.SetActive(true);
+            } else {
+                cancelButton?.gameObject.SetActive(false);
+            }
+            
+            Show();
+            UIWidgetManager.SetExclusive(this, new Color(0, 0, 0, 0.7f));
+        }
+
+        public override void Hide()
+        {
+            base.Hide();
+            UIWidgetManager.RemoveExclusive(this);
+        }
+    }
+}// Dateiname: ActionProgressBarUI.cs
+using UnityEngine;
+using UnityEngine.UI;
+using System.Collections;
+using TMPro;
+using YourGame.UI.Widgets;
+
+// ActionProgressBarUI erbt jetzt direkt von UIWidget
+public class ActionProgressBarUI : UIWidget
+{
+    public static ActionProgressBarUI Instance { get; private set; }
+
+    [Header("UI References")]
+    public GameObject progressBarPanel;
+    public Slider progressBarSlider;
+    public TextMeshProUGUI progressText;
+    public Image spinningIcon;
+
+    [Header("Progress Bar Settings")]
+    public float spinningSpeed = 200f;
+
+    private Coroutine _currentProgressBarCoroutine;
+    private Coroutine _spinningIconCoroutine;
+
+    protected override void Awake()
+    {
+        if (Instance == null)
+        {
+            Instance = this;
+        }
+        else
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        if (progressBarPanel == null) progressBarPanel = gameObject;
+
+        base.Awake();
+    }
+
+    protected override void OnEnable()
+    {
+        base.OnEnable();
+        // Sicherstellen, dass die Fortschrittsanzeige bei Aktivierung immer auf 0 steht
+        if (progressBarSlider != null)
+        {
+            progressBarSlider.value = 0f;
+        }
+        if (progressText != null)
+        {
+            progressText.text = "0%";
+        }
+        
+        // Starten der Spinning-Animation, wenn das Panel aktiv wird
+        if (spinningIcon != null)
+        {
+            if (_spinningIconCoroutine != null) StopCoroutine(_spinningIconCoroutine);
+            _spinningIconCoroutine = StartCoroutine(SpinningIconRoutine());
+        }
+    }
+
+    protected override void OnDisable()
+    {
+        base.OnDisable();
+        // Stoppen der Spinning-Animation, wenn das Panel deaktiviert wird
+        if (_spinningIconCoroutine != null)
+        {
+            StopCoroutine(_spinningIconCoroutine);
+            _spinningIconCoroutine = null;
+        }
+        if (_currentProgressBarCoroutine != null)
+        {
+            StopCoroutine(_currentProgressBarCoroutine);
+            _currentProgressBarCoroutine = null;
+        }
+    }
+
+    public override void Show()
+    {
+        if (progressBarPanel == null || progressBarSlider == null)
+        {
+            Debug.LogError("Progress Bar UI-Referenzen sind im Inspector nicht zugewiesen!");
+            return;
+        }
+
+        if (_currentProgressBarCoroutine != null)
+        {
+            StopCoroutine(_currentProgressBarCoroutine);
+        }
+        
+        base.Show(); 
+        
+        // Stellen Sie sicher, dass animationDuration einen sinnvollen Wert hat, wenn Show() direkt aufgerufen wird
+        // oder wenn Show(duration) nicht verwendet wird.
+        if (this.animationDuration <= 0.01f)
+        {
+            this.animationDuration = 0.3f; // Standard-Fallback
+        }
+
+        _currentProgressBarCoroutine = StartCoroutine(AnimateProgressBar(this.animationDuration));
+    }
+
+    public override void Hide()
+    {
+        if (_currentProgressBarCoroutine != null)
+        {
+            StopCoroutine(_currentProgressBarCoroutine);
+            _currentProgressBarCoroutine = null;
+        }
+        base.Hide();
+    }
+
+    // Eine überladene Show-Methode, um eine spezifische Dauer zu übergeben
+    public void Show(float duration)
+    {
+        this.animationDuration = duration;
+        Show();
+    }
+
+    private IEnumerator AnimateProgressBar(float duration)
+    {
+        float elapsedTime = 0f;
+        progressBarSlider.value = 0f;
+        if (progressText != null) progressText.text = "0%";
+
+        Debug.Log($"[ActionProgressBarUI] Starte Fortschrittsanimation mit Dauer: {duration} Sekunden.");
+
+        while (elapsedTime < duration)
+        {
+            elapsedTime += Time.unscaledDeltaTime;
+            float progress = Mathf.Clamp01(elapsedTime / duration);
+            progressBarSlider.value = progress;
+            if (progressText != null) progressText.text = $"{Mathf.FloorToInt(progress * 100)}%";
+            yield return null;
+        }
+
+        progressBarSlider.value = 1f;
+        if (progressText != null) progressText.text = "100%";
+        Debug.Log("[ActionProgressBarUI] Fortschrittsanimation abgeschlossen.");
+    }
+
+    private IEnumerator SpinningIconRoutine()
+    {
+        if (spinningIcon == null) yield break;
+
+        while (true)
+        {
+            spinningIcon.rectTransform.Rotate(0, 0, -spinningSpeed * Time.unscaledDeltaTime);
+            yield return null;
+        }
+    }
+}// Dateiname: UIInventorySlot.cs
+using UnityEngine;
+using UnityEngine.EventSystems;
+using TMPro;
+using UnityEngine.UI;
+
+namespace YourGame.UI.Widgets
+{
+    // Ein Inventar-Slot kann sowohl ein Drop-Ziel als auch der Container für ein ziehbares Item sein.
+    public class UIInventorySlot : UIDropTarget
+    {
+        [Header("Inventory Slot")]
+        [SerializeField] private UIDraggable _itemInSlotPrefab; // Prefab des Items, das gezogen werden kann
+        [SerializeField] private TextMeshProUGUI _stackSizeText;
+        private UIDraggable _currentItem;
+
+        // Wird aufgerufen, wenn ein anderes Item auf diesen Slot gezogen wird
+        public void OnDrop(PointerEventData eventData)
+        {
+            if (eventData.pointerDrag == null) return;
+            
+            var droppedItem = eventData.pointerDrag.GetComponent<UIDraggable>();
+            if (droppedItem == null) return;
+            
+            var sourceSlot = droppedItem.GetComponentInParent<UIInventorySlot>();
+            if (sourceSlot != null && sourceSlot != this)
+            {
+                // Tausche die Items zwischen diesem und dem Quell-Slot
+                SwapItems(sourceSlot);
+            }
+        }
+
+        // Füllt den Slot mit einem Item (z.B. beim Öffnen des Inventars)
+        public void SetItem(Sprite icon, int stackSize)
+        {
+            if (_currentItem == null)
+            {
+                // KORREKTUR: Prüfen, ob das Prefab existiert.
+                if (_itemInSlotPrefab == null) {
+                    Debug.LogError($"ItemInSlotPrefab ist nicht zugewiesen für Slot {name}!", gameObject);
+                    return;
+                }
+                _currentItem = Instantiate(_itemInSlotPrefab, transform);
+            }
+            _currentItem.GetComponent<Image>().sprite = icon;
+
+            // KORREKTUR: Prüfe, ob das Text-Element existiert, bevor es verwendet wird.
+            if (_stackSizeText != null)
+            {
+                _stackSizeText.text = stackSize > 1 ? stackSize.ToString() : "";
+            }
+            
+            _currentItem.gameObject.SetActive(true);
+        }
+
+        public void ClearSlot()
+        {
+            if (_currentItem != null)
+            {
+                Destroy(_currentItem.gameObject);
+                _currentItem = null;
+            }
+            if (_stackSizeText != null) _stackSizeText.text = "";
+        }
+
+        // Tauscht den Inhalt mit einem anderen Slot
+        public void SwapItems(UIInventorySlot otherSlot)
+        {
+            var thisItem = this._currentItem;
+            var otherItem = otherSlot._currentItem;
+
+            if (thisItem != null) thisItem.transform.SetParent(otherSlot.transform, false);
+            if (otherItem != null) otherItem.transform.SetParent(this.transform, false);
+
+            otherSlot._currentItem = thisItem;
+            this._currentItem = otherItem;
+
+            // Positionen zurücksetzen
+            if (otherSlot._currentItem) otherSlot._currentItem.RectTransform.anchoredPosition = Vector2.zero;
+            if (this._currentItem) this._currentItem.RectTransform.anchoredPosition = Vector2.zero;
+            
+            // Stack-Texte tauschen, falls vorhanden
+            if (_stackSizeText != null && otherSlot._stackSizeText != null)
+            {
+                var tempText = _stackSizeText.text;
+                _stackSizeText.text = otherSlot._stackSizeText.text;
+                otherSlot._stackSizeText.text = tempText;
+            }
+        }
+    }
+}// Dateiname: UINotificationManager.cs
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace YourGame.UI
+{
+    public class UINotificationManager : MonoBehaviour
+    {
+        public static UINotificationManager Instance { get; private set; }
+
+        [Header("Manager Settings")]
+        [SerializeField] private YourGame.UI.Widgets.UINotification _notificationPrefab;
+        [SerializeField] private Transform _container; // Wo die Notifikationen erscheinen
+        [SerializeField] private int _poolSize = 5;
+
+        private Queue<YourGame.UI.Widgets.UINotification> _pooledNotifications = new Queue<YourGame.UI.Widgets.UINotification>();
+        private Queue<KeyValuePair<string, string>> _messageQueue = new Queue<KeyValuePair<string, string>>();
+        private bool _isShowingNotification = false;
+
+        private void Awake()
+        {
+            if (Instance == null)
+            {
+                Instance = this;
+                DontDestroyOnLoad(gameObject);
+                InitializePool();
+            }
+            else
+            {
+                Destroy(gameObject);
+            }
+        }
+
+        private void InitializePool()
+        {
+            for (int i = 0; i < _poolSize; i++)
+            {
+                var notification = Instantiate(_notificationPrefab, _container);
+                notification.gameObject.SetActive(false);
+                _pooledNotifications.Enqueue(notification);
+            }
+        }
+
+        public static void Show(string title, string message)
+        {
+            Instance?._messageQueue.Enqueue(new KeyValuePair<string, string>(title, message));
+        }
+
+        private void Update()
+        {
+            // Verarbeite die Warteschlange
+            if (_messageQueue.Count > 0 && !_isShowingNotification)
+            {
+                if (_pooledNotifications.Count > 0)
+                {
+                    _isShowingNotification = true;
+                    var notification = _pooledNotifications.Dequeue();
+                    var messageData = _messageQueue.Dequeue();
+                    
+                    notification.SetContent(messageData.Key, messageData.Value);
+                    notification.gameObject.SetActive(true);
+                    notification.Launch();
+
+                    // Listener hinzufügen, um das Objekt nach dem Ausblenden wieder in den Pool zu legen
+                    notification.OnHideComplete.AddListener(() => OnNotificationHidden(notification));
+                }
+            }
+        }
+
+        private void OnNotificationHidden(YourGame.UI.Widgets.UINotification notification)
+        {
+            notification.OnHideComplete.RemoveAllListeners(); // Wichtig, um Memory Leaks zu vermeiden
+            notification.gameObject.SetActive(false);
+            _pooledNotifications.Enqueue(notification);
+            _isShowingNotification = false;
+        }
+    }
+}// Dateiname: UIProgressBar.cs (Final Korrigiert)
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIProgressBar : UIWidget
+    {
+        [Header("Progress Bar Settings")]
+        [SerializeField] private Image _fillImage;
+        [SerializeField, Range(0f, 1f)] private float _progress;
+
+        public float Progress
+        {
+            get => _progress;
+            set
+            {
+                _progress = Mathf.Clamp01(value);
+                UpdateFill();
+            }
+        }
+
+        public Image FillImage
+        {
+            get => _fillImage;
+            set => _fillImage = value;
+        }
+
+        protected override void Awake()
+        {
+            base.Awake();
+            // Die Prüfung in Awake wurde entfernt, um Fehler bei der dynamischen Erstellung zu vermeiden.
+            // Der Null-Check in UpdateFill() ist ausreichend.
+            UpdateFill();
+        }
+
+        private void OnValidate()
+        {
+            UpdateFill();
+        }
+
+        public void UpdateFill()
+        {
+            // Dieser Null-Check verhindert Laufzeitfehler.
+            if (_fillImage != null)
+            {
+                _fillImage.fillAmount = _progress;
+            }
+        }
+    }
+}using UnityEngine;
+using TMPro;
+using UnityEngine.UI; // Für die alte Text-Komponente
+
+public class LocalizableText : MonoBehaviour
+{
+    public string translationKey; // Der Schlüssel in der translations.json
+    private TMP_Text tmpTextComponent;    // TextMeshPro-Komponente (kann null sein)
+    private Text legacyTextComponent;     // Legacy Text-Komponente (kann null sein)
+
+    void Start()
+    {
+        // Versuche, *beide* Komponenten zu finden. Eine davon sollte vorhanden sein.
+        tmpTextComponent = GetComponent<TMP_Text>();
+        legacyTextComponent = GetComponent<Text>();
+
+        if (tmpTextComponent == null && legacyTextComponent == null)
+        {
+            Debug.LogError("LocalizableText benötigt entweder eine TextMeshPro- oder eine Text-Komponente!", this); // Aussagekräftigere Fehlermeldung
+            enabled = false; // Deaktiviere das Skript, um weitere Fehler zu vermeiden
+            return;
+        }
+
+        UpdateText(); // Aktualisiere den Text beim Start.
+
+        // Melde dich beim OnLanguageChanged-Event an.
+        LanguageManager.Instance.OnLanguageChanged.AddListener(UpdateText);
+    }
+
+    // Wichtig: Entferne den Listener, wenn das Objekt zerstört wird, um Memory Leaks zu vermeiden.
+    private void OnDestroy()
+    {
+        if (LanguageManager.Instance != null)
+        {
+            LanguageManager.Instance.OnLanguageChanged.RemoveListener(UpdateText);
+        }
+    }
+
+    public void UpdateText()
+    {
+        if (string.IsNullOrEmpty(translationKey))
+        {
+            Debug.LogWarning("LocalizableText hat keinen translationKey gesetzt!", this);
+            return;
+        }
+
+        string localizedString = LanguageManager.Instance.GetString(translationKey);
+
+        if (tmpTextComponent != null)
+        {
+            tmpTextComponent.text = localizedString;
+        }
+        else if (legacyTextComponent != null)
+        {
+            legacyTextComponent.text = localizedString;
+        }
+    }
+}// Dateiname: UIScrollList.cs
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace YourGame.UI.Widgets
+{
+    [RequireComponent(typeof(ScrollRect))]
+    public class UIScrollList : UIMenu // Erbt von UIMenu, um Grundfunktionen wiederzuverwenden
+    {
+        private readonly Queue<UIWidget> _pooledItems = new Queue<UIWidget>();
+        private ScrollRect _scrollRect;
+
+        protected override void Awake()
+        {
+            base.Awake();
+            _scrollRect = GetComponent<ScrollRect>();
+        }
+
+        // Überschreibt die ClearItems-Methode, um Pooling zu implementieren
+        public override void ClearItems()
+        {
+            while(Items.Count > 0)
+            {
+                var item = Items[0];
+                Items.RemoveAt(0);
+                item.gameObject.SetActive(false);
+                _pooledItems.Enqueue(item);
+            }
+            SelectedWidget = null;
+        }
+
+        // Überschreibt AddWidget, um Objekte aus dem Pool wiederzuverwenden
+        public override UIWidget AddWidget(string name, object userData = null)
+        {
+            UIWidget newWidget;
+            if (_pooledItems.Count > 0)
+            {
+                newWidget = _pooledItems.Dequeue();
+            }
+            else
+            {
+                if (_itemTemplate == null) return null;
+                newWidget = Instantiate(_itemTemplate, _contentContainer);
+                 // Klick-Listener nur einmal beim Erstellen hinzufügen
+                newWidget.OnClickEvent.AddListener((widget, data) => OnItemClick(widget));
+            }
+
+            newWidget.gameObject.name = name;
+            newWidget.UserData = userData;
+            newWidget.ParentMenu = this;
+            newWidget.gameObject.SetActive(true);
+            newWidget.transform.SetAsLastSibling(); // Stellt sicher, dass es am Ende der Liste ist
+            Items.Add(newWidget);
+
+            return newWidget;
+        }
+    }
+}using UnityEngine;
+using UnityEngine.UI;
+
+namespace YourGame.UI
+{
+    [RequireComponent(typeof(Canvas))]
+    [RequireComponent(typeof(GraphicRaycaster))]
+    public class UIOverlayManager : MonoBehaviour
+    {
+        private static UIOverlayManager _instance;
+        private static readonly object _lock = new object();
+
+        public static UIOverlayManager Instance
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = FindObjectOfType<UIOverlayManager>() ??
+                                    new GameObject("UIOverlayManager_AutoCreated").AddComponent<UIOverlayManager>();
+                    }
+                    return _instance;
+                }
+            }
+        }
+
+        private Canvas _canvas;
+        private CanvasGroup _overlayGroup;
+        private Image _backgroundImage;
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            // Setup Canvas
+            _canvas = GetComponent<Canvas>();
+            _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            _canvas.sortingOrder = 999; // Hoher Sorting Order, um über allem zu liegen
+
+            // Setup Overlay GameObject
+            GameObject overlayGO = new GameObject("OverlayGroup");
+            overlayGO.transform.SetParent(transform, false);
+            _backgroundImage = overlayGO.AddComponent<Image>();
+            _backgroundImage.rectTransform.anchorMin = Vector2.zero;
+            _backgroundImage.rectTransform.anchorMax = Vector2.one;
+            _backgroundImage.rectTransform.sizeDelta = Vector2.zero;
+            _overlayGroup = overlayGO.AddComponent<CanvasGroup>();
+            _overlayGroup.alpha = 0;
+            _overlayGroup.blocksRaycasts = false;
+        }
+
+        public void ActivateExclusiveOverlay(Color maskColor)
+        {
+            _backgroundImage.color = maskColor;
+            _overlayGroup.alpha = 1;
+            _overlayGroup.blocksRaycasts = true;
+        }
+
+        public void DeactivateExclusiveOverlay()
+        {
+            _overlayGroup.alpha = 0;
+            _overlayGroup.blocksRaycasts = false;
+        }
+    }
+}// Dateiname: UIInputHandler.cs (Korrigiert)
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using UnityEngine.EventSystems; // KORRIGIERT: Fehlende using-Anweisung hinzugefügt
+
+namespace YourGame.UI.Widgets
+{
+    public class UIInputHandler : MonoBehaviour
+    {
+        private static UIInputHandler _instance;
+        public static UIInputHandler Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    _instance = FindObjectOfType<UIInputHandler>();
+                    if (_instance == null)
+                    {
+                        GameObject managerGO = new GameObject("UIInputHandler_AutoCreated");
+                        _instance = managerGO.AddComponent<UIInputHandler>();
+                    }
+                }
+                return _instance;
+            }
+        }
+
+        // Speichert, welche Widgets auf welche Taste reagieren sollen
+        private Dictionary<KeyCode, List<UIWidget>> _keyBindings = new Dictionary<KeyCode, List<UIWidget>>();
+        // System für UI-Fokus und Navigation
+        private UIWidget _currentlyFocusedWidget;
+        public UIWidget FocusedWidget => _currentlyFocusedWidget;
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+        }
+
+        void Update()
+        {
+            // Bestehende Logik für Toggle-Tasten
+            if (_keyBindings.Count > 0)
+            {
+                // Um Modifikationen während der Iteration zu vermeiden, falls ein Toggle die Liste ändert.
+                var keys = _keyBindings.Keys.ToList();
+                foreach (var key in keys)
+                {
+                    if (Input.GetKeyDown(key))
+                    {
+                        // Eine Kopie der Liste erstellen
+                        var widgetsToToggle = _keyBindings[key].ToList();
+                        foreach (var widget in widgetsToToggle)
+                        {
+                            if (widget != null)
+                            {
+                                widget.Toggle();
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Logik für UI-Navigation mit dem fokussierten Widget
+            if (_currentlyFocusedWidget != null)
+            {
+                // Beispiel für eine "Submit"-Aktion auf dem fokussierten Widget
+                if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+                {
+                    // Simulieren eines Klicks auf das fokussierte Element
+                    var pointerData = new PointerEventData(EventSystem.current);
+                    _currentlyFocusedWidget.OnPointerClick(pointerData);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Registriert ein UIWidget für eine bestimmte Toggle-Taste.
+        /// </summary>
+        public void RegisterToggleKey(KeyCode key, UIWidget widget)
+        {
+            if (key == KeyCode.None || widget == null) return;
+            if (!_keyBindings.ContainsKey(key))
+            {
+                _keyBindings[key] = new List<UIWidget>();
+            }
+            if (!_keyBindings[key].Contains(widget))
+            {
+                _keyBindings[key].Add(widget);
+            }
+        }
+
+        /// <summary>
+        /// Deregistriert ein UIWidget von einer bestimmten Toggle-Taste.
+        /// </summary>
+        public void UnregisterToggleKey(KeyCode key, UIWidget widget)
+        {
+            if (key == KeyCode.None || widget == null) return;
+            if (_keyBindings.ContainsKey(key))
+            {
+                _keyBindings[key].Remove(widget);
+                if (_keyBindings[key].Count == 0)
+                {
+                    _keyBindings.Remove(key);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Setzt den Fokus auf ein bestimmtes UIWidget.
+        /// Nützlich für Tastatur- und Gamepad-Navigation.
+        /// </summary>
+        /// <param name="widget">Das Widget, das den Fokus erhalten soll.</param>
+        public void SetFocus(UIWidget widget)
+        {
+            if (_currentlyFocusedWidget == widget) return;
+            // Altes Widget verliert den Fokus
+            if (_currentlyFocusedWidget != null)
+            {
+                _currentlyFocusedWidget.OnFocusLost();
+            }
+
+            _currentlyFocusedWidget = widget;
+            // Neues Widget erhält den Fokus
+            if (_currentlyFocusedWidget != null)
+            {
+                _currentlyFocusedWidget.OnFocusGained();
+            }
+        }
+    }
+}// Dateiname: UILineRenderer.cs (Final Vereinfacht)
+using UnityEngine;
+using UnityEngine.UI;
+
+// KORREKTUR: Erbt jetzt von MonoBehaviour statt UIWidget, um Konflikte zu vermeiden.
+[RequireComponent(typeof(Image))]
+public class UILineRenderer : MonoBehaviour
+{
+    private RectTransform _rectTransform;
+    private Image _lineImage;
+
+    private void Awake()
+    {
+        // Wir holen uns die Referenzen direkt.
+        _rectTransform = GetComponent<RectTransform>();
+        _lineImage = GetComponent<Image>();
+    }
+
+    public void SetPositions(Vector2 startPos, Vector2 endPos)
+    {
+        if (_rectTransform == null)
+        {
+            Debug.LogError("UILineRenderer: RectTransform konnte nicht gefunden werden!", gameObject);
+            return;
+        }
+
+        _rectTransform.anchorMin = Vector2.zero;
+        _rectTransform.anchorMax = Vector2.zero;
+
+        Vector2 direction = (endPos - startPos).normalized;
+        float distance = Vector2.Distance(startPos, endPos);
+
+        _rectTransform.sizeDelta = new Vector2(distance, 5f);
+        _rectTransform.anchoredPosition = startPos + direction * distance * 0.5f;
+            
+        float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
+        _rectTransform.rotation = Quaternion.Euler(0, 0, angle);
+    }
+}// Dateiname: UIStatusEffectDisplay.cs
+using UnityEngine;
+using UnityEngine.UI;
+using System.Collections.Generic;
+
+namespace YourGame.UI
+{
+    // Diese Klasse verwaltet eine Liste von Buff/Debuff-Icons
+    public class UIStatusEffectDisplay : MonoBehaviour
+    {
+        [Header("Status Effect Settings")]
+        [SerializeField] private YourGame.UI.Widgets.UINotification _effectIconPrefab; // Wir können die UINotification-Klasse hier wiederverwenden!
+        [SerializeField] private Transform _container;
+        private Queue<YourGame.UI.Widgets.UINotification> _pooledIcons = new Queue<YourGame.UI.Widgets.UINotification>();
+        
+        private void Awake()
+        {
+            // Initialisiere einen Pool von Icons
+            for (int i = 0; i < 10; i++)
+            {
+                var icon = Instantiate(_effectIconPrefab, _container);
+                icon.gameObject.SetActive(false);
+                _pooledIcons.Enqueue(icon);
+            }
+        }
+        
+        // Fügt einen neuen Effekt hinzu
+        public void AddEffect(Sprite iconSprite, float duration)
+        {
+            if (_pooledIcons.Count == 0) return; // Kein freies Icon verfügbar
+
+            var effectIcon = _pooledIcons.Dequeue();
+            effectIcon.GetComponent<Image>().sprite = iconSprite;
+            effectIcon.gameObject.SetActive(true);
+            
+            effectIcon.Show(); // Startet die Einblend-Animation
+            
+            // Starte einen Coroutine, um das Icon nach Ablauf der Dauer auszublenden und in den Pool zurückzulegen
+            StartCoroutine(EffectRoutine(effectIcon, duration));
+        }
+
+        private System.Collections.IEnumerator EffectRoutine(YourGame.UI.Widgets.UINotification icon, float duration)
+        {
+            // Hier könnte man den Cooldown-Overlay des Icons aktualisieren, falls vorhanden
+            yield return new WaitForSeconds(duration);
+            icon.Hide();
+            
+            // Warte, bis die Ausblend-Animation fertig ist, bevor es in den Pool geht
+            yield return new WaitWhile(() => icon.IsVisible);
+
+            icon.gameObject.SetActive(false);
+            _pooledIcons.Enqueue(icon);
+        }
+    }
+}using UnityEngine;
+using System.Collections.Generic;
+using UnityEngine.Events;
+
+public class UIManager : MonoBehaviour
+{
+    public static UIManager Instance { get; private set; }
+
+    public UnityEvent OnPanelOpened;
+    public UnityEvent OnPanelClosed;
+
+    [Header("UI Panel References")]
+    [Tooltip("Das Haupt-Panel des Spieler-Inventars")]
+    public GameObject playerInventoryPanel;
+    [Tooltip("Das Panel für das Inventar des Begleiters")]
+    public GameObject petInventoryPanel;
+    [Tooltip("Das Panel für Dialoge mit NPCs")]
+    public GameObject dialoguePanel;
+    [Tooltip("Das Haupt-Panel des Shops")]
+    public GameObject shopPanel;
+    [Tooltip("Das Panel für die Quest-Interaktion mit NPCs")]
+    public GameObject questInteractionPanel;
+    [Tooltip("Das Panel für das Quest-Log des Spielers")]
+    public GameObject questLogPanel;
+    public GameObject ActionProgressBarUI;
+    public GameObject PlayerHUD;
+
+    [Header("Panel Behavior")]
+    [Tooltip("Panels in dieser Liste werden die Spielersteuerung NICHT deaktivieren, wenn sie geöffnet werden.")]
+    public List<GameObject> nonBlockingPanels = new List<GameObject>();
+    
+    private GameObject _currentlyOpenPanel;
+    private InputManager _inputManager;
+    private PlayerController _playerController;
+
+    private void Awake()
+    {
+        if (Instance == null)
+        {
+            Instance = this;
+            DontDestroyOnLoad(gameObject);
+            OnPanelOpened = new UnityEvent();
+            OnPanelClosed = new UnityEvent();
+        }
+        else
+        {
+            Destroy(gameObject);
+            return;
+        }
+    }
+
+    private void Start()
+    {
+        if (GameManager.Instance != null)
+        {
+            _inputManager = GameManager.Instance.inputManager;
+            if (GameManager.Instance.playerLoaded && GameManager.Instance.playerControllerInstance != null)
+            {
+                _playerController = GameManager.Instance.playerControllerInstance;
+            }
+        }
+        else
+        {
+            _inputManager = FindObjectOfType<InputManager>();
+            _playerController = FindObjectOfType<PlayerController>();
+        }
+
+        if (_inputManager == null)
+        {
+            Debug.LogError("[UIManager] InputManager nicht in der Szene gefunden!");
+        }
+
+        if (questLogPanel != null && !nonBlockingPanels.Contains(questLogPanel))
+        {
+            nonBlockingPanels.Add(questLogPanel);
+        }
+
+        playerInventoryPanel?.SetActive(false);
+        petInventoryPanel?.SetActive(false);
+        dialoguePanel?.SetActive(false);
+        shopPanel?.SetActive(false);
+        questInteractionPanel?.SetActive(false);
+        questLogPanel?.SetActive(false);
+        ActionProgressBarUI?.SetActive(false);
+
+    }
+
+    private void Update()
+    {
+        HandleCloseOnMove();
+    }
+    
+    public void OpenPanel(GameObject panelToOpen)
+    {
+        if (panelToOpen == null)
+        {
+            Debug.LogError("[UIManager] Versuch, ein NULL-Panel zu öffnen.");
+            return;
+        }
+
+        if (_playerController == null && GameManager.Instance != null && GameManager.Instance.playerLoaded)
+        {
+            _playerController = GameManager.Instance.playerControllerInstance;
+        }
+        
+        if (_currentlyOpenPanel != null && _currentlyOpenPanel != panelToOpen)
+        {
+            _currentlyOpenPanel.SetActive(false);
+        }
+
+        panelToOpen.SetActive(true);
+        _currentlyOpenPanel = panelToOpen;
+
+        if (!nonBlockingPanels.Contains(panelToOpen))
+        {
+            if (GameManager.Instance != null && GameManager.Instance.playerLoaded)
+            {
+                GameManager.Instance.SetPlayerControlActive(false);
+                ResetPlayerAnimationsToIdle();
+            }
+        }
+
+        OnPanelOpened?.Invoke();
+    }
+
+    public void CloseCurrentPanel()
+    {
+        if (_currentlyOpenPanel != null)
+        {
+            GameObject panelToClose = _currentlyOpenPanel;
+            panelToClose.SetActive(false);
+            _currentlyOpenPanel = null;
+
+            if (!nonBlockingPanels.Contains(panelToClose))
+            {
+                if (GameManager.Instance != null && GameManager.Instance.playerLoaded)
+                {
+                    GameManager.Instance.SetPlayerControlActive(true);
+                }
+            }
+
+            OnPanelClosed?.Invoke();
+        }
+    }
+    
+    public bool IsPanelOpen(GameObject panel)
+    {
+        return _currentlyOpenPanel != null && _currentlyOpenPanel == panel;
+    }
+
+    public void OpenPetInventoryPanel(PetInventory petInventoryComponent)
+    {
+        if (petInventoryPanel == null)
+        {
+            Debug.LogError("[UIManager] Das 'petInventoryPanel' ist im UIManager nicht zugewiesen!");
+            return;
+        }
+
+        if (petInventoryComponent == null)
+        {
+            Debug.LogError("[UIManager] OpenPetInventoryPanel: petInventoryComponent ist null.");
+            return;
+        }
+        
+        OpenPanel(petInventoryPanel);
+
+        PetInventoryUI petUI = petInventoryPanel.GetComponent<PetInventoryUI>();
+        if (petUI != null)
+        {
+            petUI.OpenInventory(petInventoryComponent);
+        }
+        else
+        {
+            Debug.LogError("[UIManager] Das zugewiesene 'petInventoryPanel' hat keine 'PetInventoryUI'-Komponente!");
+        }
+    }
+
+    public void OpenDialoguePanel(DialogueSO dialogue, NPCInteraction npc)
+    {
+        if (dialoguePanel == null)
+        {
+            Debug.LogError("[UIManager] Das 'dialoguePanel' ist im UIManager nicht zugewiesen!");
+            return;
+        }
+
+        if (dialogue == null || npc == null)
+        {
+            Debug.LogError("[UIManager] OpenDialoguePanel: dialogue oder npc ist null.");
+            return;
+        }
+        
+        OpenPanel(dialoguePanel);
+        
+        if (DialogueManager.Instance != null)
+        {
+            DialogueManager.Instance.StartDialogue(dialogue, npc);
+        }
+        else
+        {
+            Debug.LogError("[UIManager] DialogueManager.Instance nicht gefunden. Dialog kann nicht gestartet werden.");
+        }
+    }
+    
+    public void OpenQuestInteractionPanelForNPC(NPCInteraction npc, PlayerController player)
+    {
+        if (questInteractionPanel == null)
+        {
+            Debug.LogError("[UIManager] Das 'questInteractionPanel' ist im UIManager nicht zugewiesen!");
+            return;
+        }
+
+        if (npc == null || player == null)
+        {
+            Debug.LogError("[UIManager] OpenQuestInteractionPanelForNPC: NPC oder Player ist null.");
+            return;
+        }
+        
+        OpenPanel(questInteractionPanel);
+        
+        QuestInteractionUI questUI = questInteractionPanel.GetComponent<QuestInteractionUI>();
+        if (questUI != null)
+        {
+            questUI.InitializePanel(npc, player);
+        }
+        else
+        {
+            Debug.LogError("[UIManager] Das zugewiesene 'questInteractionPanel' hat keine 'QuestInteractionUI'-Komponente!");
+        }
+    }
+    
+    private void HandleCloseOnMove()
+    {
+        if (_currentlyOpenPanel == null || nonBlockingPanels.Contains(_currentlyOpenPanel))
+        {
+            return;
+        }
+
+        if (_inputManager != null &&
+           (Input.GetKey(_inputManager.forwardKey) ||
+            Input.GetKey(_inputManager.backwardKey) ||
+            Input.GetKey(_inputManager.leftKey) ||
+            Input.GetKey(_inputManager.rightKey)))
+        {
+            CloseCurrentPanel();
+        }
+    }
+
+    private void ResetPlayerAnimationsToIdle()
+    {
+        if (_playerController == null) return;
+
+        Animator animator = _playerController.GetComponentInChildren<Animator>();
+        if (animator != null)
+        {
+            animator.SetFloat("Speed", 0f);
+            animator.SetFloat("MotionSpeed", 0f);
+        }
+    }
+}// Dateiname: UIMonsterBrevier.cs
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+using System.Collections.Generic;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIMonsterBrevier : UIWidget
+    {
+        [Header("Brevier Components")]
+        [SerializeField] private UIScrollList _monsterList;
+        [SerializeField] private TextMeshProUGUI _monsterNameText;
+        [SerializeField] private Image _monsterIcon;
+        [SerializeField] private UITabView _detailsTabView;
+        
+        [Header("Info Tab")]
+        [SerializeField] private TextMeshProUGUI _descriptionText;
+        [SerializeField] private TextMeshProUGUI _habitatText;
+
+        [Header("Weakness & Loot Tabs")]
+        [SerializeField] private RectTransform _weaknessContainer;
+        [SerializeField] private RectTransform _lootContainer;
+        [SerializeField] private GameObject _listEntryPrefab; // Simples Text-Prefab
+
+        private MonsterData _selectedMonster;
+
+        public void Initialize()
+        {
+            _monsterList.OnItemSelected.AddListener(OnMonsterSelected);
+            if (_listEntryPrefab != null) _listEntryPrefab.SetActive(false);
+        }
+
+        public void PopulateMonsterList(List<MonsterData> discoveredMonsters)
+        {
+            _monsterList.ClearItems();
+            foreach (var monster in discoveredMonsters)
+            {
+                var widget = _monsterList.AddWidget(monster.monsterName, monster);
+                widget.SetText(monster.monsterName);
+            }
+        }
+
+        private void OnMonsterSelected(UIWidget monsterWidget)
+        {
+            if (monsterWidget == null || !(monsterWidget.UserData is MonsterData)) return;
+            
+            _selectedMonster = monsterWidget.UserData as MonsterData;
+            _monsterNameText.text = _selectedMonster.monsterName;
+            _monsterIcon.sprite = _selectedMonster.monsterIcon;
+
+            // Fülle die Tabs mit den neuen Daten
+            PopulateInfoTab();
+            PopulateWeaknessTab();
+            PopulateLootTab();
+        }
+
+        private void PopulateInfoTab()
+        {
+            _descriptionText.text = _selectedMonster.description;
+            _habitatText.text = $"Habitat: {_selectedMonster.habitat}";
+        }
+
+        private void PopulateWeaknessTab()
+        {
+            // Alte Einträge löschen
+            foreach (Transform child in _weaknessContainer)
+                if(child.gameObject.activeSelf) Destroy(child.gameObject);
+
+            foreach (var weakness in _selectedMonster.weaknesses)
+            {
+                var entry = Instantiate(_listEntryPrefab, _weaknessContainer);
+                entry.GetComponent<TextMeshProUGUI>().text = $"• {weakness}";
+                entry.SetActive(true);
+            }
+        }
+        
+        private void PopulateLootTab()
+        {
+            // Alte Einträge löschen
+            foreach (Transform child in _lootContainer)
+                if(child.gameObject.activeSelf) Destroy(child.gameObject);
+
+            foreach (var loot in _selectedMonster.lootTable)
+            {
+                var entry = Instantiate(_listEntryPrefab, _lootContainer);
+                entry.GetComponent<TextMeshProUGUI>().text = $"• {loot.item.itemName} ({loot.dropChance})";
+                entry.SetActive(true);
+            }
+        }
+    }
+}using UnityEngine;
+using System.Collections.Generic;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIRadialMenu : UIMenu
+    {
+        [Header("Radial Menu Settings")]
+        [SerializeField] private float _radius = 150f;
+        [SerializeField] private float _startAngle = 90f; // Startet oben in der Mitte
+
+        private Vector2 _centerPosition;
+
+        protected override void Awake()
+        {
+            base.Awake();
+            // Verstecke das Menü standardmäßig
+            if (_canvasGroup != null) _canvasGroup.alpha = 0;
+            gameObject.SetActive(false);
+        }
+
+        // Überschreibt Show, um das Menü an der Mausposition zu öffnen
+        public override void Show()
+        {
+            _centerPosition = Input.mousePosition;
+            transform.position = _centerPosition;
+            base.Show();
+            ArrangeItems();
+        }
+        
+        // Überschreibt AddWidget, um die Anordnung sofort zu aktualisieren
+        public override UIWidget AddWidget(string name, object userData = null)
+        {
+            var newWidget = base.AddWidget(name, userData);
+            if(newWidget != null)
+            {
+                ArrangeItems();
+            }
+            return newWidget;
+        }
+
+        // Ordnet alle Kind-Elemente im Kreis an
+        private void ArrangeItems()
+        {
+            if (Items.Count == 0) return;
+            float angleStep = 360f / Items.Count;
+            for (int i = 0; i < Items.Count; i++)
+            {
+                float currentAngle = (_startAngle - (i * angleStep)) * Mathf.Deg2Rad;
+                float xPos = Mathf.Cos(currentAngle) * _radius;
+                float yPos = Mathf.Sin(currentAngle) * _radius;
+
+                UIWidget item = Items[i];
+                if (item != null)
+                {
+                    // KORREKTUR: Greift direkt auf die Komponente zu, um den Fehler zu vermeiden.
+                    item.GetComponent<RectTransform>().anchoredPosition = new Vector2(xPos, yPos);
+                }
+            }
+        }
+
+        public override void ClearItems()
+        {
+            base.ClearItems();
+            ArrangeItems(); // Aktualisiert die Ansicht
+        }
+    }
+}// Dateiname: UIMenu.cs (Final Korrigiert)
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.UI;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIMenu : UIWidget
+    {
+        [Header("Menu Settings")]
+        [Tooltip("Das Template-Prefab für jedes Item in der Liste.")]
+        [SerializeField] protected UIWidget _itemTemplate;
+        [Tooltip("Das UI-Element, das als Container für die Items dient (z.B. mit einem LayoutGroup).")]
+        [SerializeField] protected RectTransform _contentContainer;
+        [Tooltip("Optional: Ein Highlight-Objekt, das über das ausgewählte Item gelegt wird.")]
+        [SerializeField] private GameObject _selectionHighlight;
+        
+        private readonly List<UIWidget> _items = new List<UIWidget>();
+        private UIWidget _selectedWidget;
+
+        public List<UIWidget> Items => _items;
+        public UnityEvent<UIWidget> OnItemSelected;
+        public UIWidget SelectedWidget
+        {
+            get => _selectedWidget;
+            set
+            {
+                if (_selectedWidget == value) return;
+                _selectedWidget = value;
+                UpdateHighlight();
+                OnItemSelected?.Invoke(_selectedWidget);
+            }
+        }
+
+        protected override void Awake()
+        {
+            base.Awake();
+
+            // KORREKTUR: Event initialisieren, um NullReferenceException zu vermeiden.
+            if (OnItemSelected == null) OnItemSelected = new UnityEvent<UIWidget>();
+
+            if (_itemTemplate != null) _itemTemplate.gameObject.SetActive(false);
+            if (_selectionHighlight != null) _selectionHighlight.SetActive(false);
+            if (_contentContainer == null) _contentContainer = transform as RectTransform;
+        }
+        
+        public virtual UIWidget AddWidget(string name, object userData = null)
+        {
+            if (_itemTemplate == null)
+            {
+                Debug.LogError("[UIMenu] Kein Item-Template zugewiesen!");
+                return null;
+            }
+
+            UIWidget newWidget = Instantiate(_itemTemplate, _contentContainer);
+            newWidget.gameObject.name = name;
+            newWidget.UserData = userData;
+            newWidget.ParentMenu = this;
+            newWidget.gameObject.SetActive(true);
+            newWidget.OnClickEvent.AddListener((widget, data) => OnItemClick(widget));
+            _items.Add(newWidget);
+            return newWidget;
+        }
+        
+        public virtual void RemoveWidget(UIWidget widget)
+        {
+            if (widget == null || !_items.Contains(widget)) return;
+            if (SelectedWidget == widget)
+            {
+                SelectedWidget = null;
+            }
+            _items.Remove(widget);
+            Destroy(widget.gameObject);
+        }
+        
+        public virtual void ClearItems()
+        {
+            for (int i = _items.Count - 1; i >= 0; i--)
+            {
+                Destroy(_items[i].gameObject);
+            }
+            _items.Clear();
+            SelectedWidget = null;
+        }
+
+        protected virtual void OnItemClick(UIWidget item)
+        {
+            SelectedWidget = item;
+        }
+
+        private void UpdateHighlight()
+        {
+            if (_selectionHighlight == null) return;
+            if (_selectedWidget != null)
+            {
+                _selectionHighlight.SetActive(true);
+                _selectionHighlight.transform.SetParent(_selectedWidget.transform, false);
+                _selectionHighlight.GetComponent<RectTransform>().anchoredPosition = Vector2.zero;
+            }
+            else
+            {
+                _selectionHighlight.SetActive(false);
+                _selectionHighlight.transform.SetParent(transform, false);
+            }
+        }
+    }
+}using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class UIModelViewer : MonoBehaviour
+{
+    // Start is called before the first frame update
+    void Start()
+    {
+        
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        
+    }
+}
+// Dateiname: UITooltipDisplay.cs
+using UnityEngine;
+using System.Collections;
+using YourGame.UI.Widgets;
+
+namespace YourGame.UI
+{
+    public class UITooltipDisplay : MonoBehaviour
+    {
+        public static UITooltipDisplay Instance { get; private set; }
+        
+        [SerializeField] private UIWidget tooltipWidget; // Ein UIWidget, das als Tooltip-Template dient
+        private Coroutine _showCoroutine;
+        private UIWidget _currentTarget;
+
+        private void Awake()
+        {
+            if (Instance != null) { Destroy(gameObject); return; }
+            Instance = this;
+            if (tooltipWidget != null) tooltipWidget.gameObject.SetActive(false);
+        }
+
+        public void ShowTooltip(UIWidget target)
+        {
+            if (target == null || !target.Tooltip.Enabled || string.IsNullOrEmpty(target.Tooltip.TooltipText)) return;
+            
+            _currentTarget = target;
+            if (_showCoroutine != null) StopCoroutine(_showCoroutine);
+            _showCoroutine = StartCoroutine(ShowTooltipRoutine(target));
+        }
+
+        private IEnumerator ShowTooltipRoutine(UIWidget target)
+        {
+            yield return new WaitForSecondsRealtime(target.Tooltip.Delay);
+            
+            if (tooltipWidget != null && _currentTarget == target)
+            {
+                tooltipWidget.SetText(target.Tooltip.TooltipText);
+                tooltipWidget.RectTransform.position = Input.mousePosition + (Vector3)target.Tooltip.Offset;
+                tooltipWidget.Show();
+                // Hier könnten weitere Tooltip-Eigenschaften gesetzt werden (Farbe, etc.)
+            }
+        }
+
+        public void HideTooltip(UIWidget target, bool immediate = false)
+        {
+            if (_currentTarget != target && !immediate) return;
+            if (_showCoroutine != null) StopCoroutine(_showCoroutine);
+            if (tooltipWidget != null) tooltipWidget.Hide();
+            _currentTarget = null;
+        }
+    }
+}// Dateiname: UIFoodCanteenPanel.cs (Angepasst an universelle IngredientData)
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+using System.Collections.Generic;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIFoodCanteenPanel : UIWidget
+    {
+        private List<UIInventorySlot> _ingredientSlots;
+        private TextMeshProUGUI _resultBuffsText;
+        private UIButton _cookButton;
+        private UIScrollList _ingredientSelectionList;
+
+        public void Initialize(List<UIInventorySlot> slots, TextMeshProUGUI resultText, UIButton cookButton, UIScrollList selectionList)
+        {
+            _ingredientSlots = slots;
+            _resultBuffsText = resultText;
+            _cookButton = cookButton;
+            _ingredientSelectionList = selectionList;
+
+            foreach (var slot in _ingredientSlots)
+            {
+                slot.OnItemDropped.AddListener((draggable) => UpdateResultingBuffs());
+            }
+
+            _cookButton.OnClickEvent.AddListener((w, d) => Cook());
+            UpdateResultingBuffs();
+        }
+
+        public void PopulateIngredients(List<IngredientData> allIngredients)
+        {
+            if (_ingredientSelectionList == null) return;
+            _ingredientSelectionList.ClearItems();
+
+            foreach (var ingredient in allIngredients)
+            {
+                var itemWidget = _ingredientSelectionList.AddWidget(ingredient.itemName, ingredient);
+                var image = itemWidget.gameObject.AddComponent<Image>();
+                image.sprite = ingredient.icon;
+                itemWidget.gameObject.AddComponent<UIDraggable>();
+            }
+        }
+
+        private void UpdateResultingBuffs()
+        {
+            // Ein Dictionary, um alle Buff-Typen und ihre summierten Werte zu speichern
+            var totalBuffs = new Dictionary<BuffType, int>();
+
+            foreach (var slot in _ingredientSlots)
+            {
+                var draggable = slot.GetComponentInChildren<UIDraggable>();
+                if (draggable != null && draggable.UserData is IngredientData ingredient)
+                {
+                    // Gehe durch JEDEN Buff, den die Zutat hat
+                    foreach (var buff in ingredient.buffs)
+                    {
+                        if (!totalBuffs.ContainsKey(buff.type))
+                        {
+                            totalBuffs[buff.type] = 0;
+                        }
+                        totalBuffs[buff.type] += buff.value;
+                    }
+                }
+            }
+
+            if (totalBuffs.Count == 0)
+            {
+                _resultBuffsText.text = "Wähle Zutaten aus...";
+                _cookButton.SetState(UIState.Disabled);
+                return;
+            }
+
+            string buffsText = "Resultierende Boni:\n";
+            foreach (var buffEntry in totalBuffs)
+            {
+                buffsText += $"• {buffEntry.Key} +{buffEntry.Value}\n";
+            }
+
+            _resultBuffsText.text = buffsText;
+            _cookButton.SetState(UIState.Interactive);
+        }
+
+        private void Cook()
+        {
+            if (_cookButton.CurrentState == UIState.Disabled) return;
+
+            Debug.Log("Mahlzeit wird gekocht! Folgende Boni sind jetzt aktiv:");
+            Debug.Log(_resultBuffsText.text.Replace("Resultierende Boni:\n", "").Trim());
+        }
+    }
+}// Dateiname: Quest.cs
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace YourGame.Quests
+{
+    // Diese Klasse enthält die Daten für ein einzelnes Quest-Ziel.
+    [System.Serializable]
+    public class Objective
+    {
+        public string Description;      // z.B. "Sammle Fische"
+        public int RequiredAmount;     // z.B. 10
+        public int CurrentProgress;    // z.B. 5
+    }
+
+    // Dies ist die Haupt-Datenklasse für eine Quest.
+    [CreateAssetMenu(fileName = "NewQuest", menuName = "YourGame/Quest")]
+    public class Quest : ScriptableObject
+    {
+        public string Title;            // Der Name der Quest
+        public bool IsComplete;         // Ist die Quest abgeschlossen?
+        public List<Objective> Objectives = new List<Objective>(); // Die Liste der Ziele
+    }
+}// Dateiname: UISkillNode.cs (Final Korrigiert)
+using UnityEngine;
+using UnityEngine.UI;
+using System.Collections.Generic;
+
+namespace YourGame.UI.Widgets
+{
+    public class UISkillNode : UIButton
+    {
+        [Header("Skill Node Settings")]
+        public string skillName;
+        [TextArea] public string skillDescription;
+        public int cost = 1;
+        
+        // KORREKTUR: Die Liste wird hier direkt initialisiert, um Null-Fehler zu vermeiden.
+        public List<UISkillNode> dependencies = new List<UISkillNode>();
+
+        public bool IsUnlocked { get; private set; }
+
+        private UISkillTree _skillTree;
+
+        protected override void Awake()
+        {
+            base.Awake();
+            _skillTree = GetComponentInParent<UISkillTree>();
+            OnClickEvent.AddListener((w,d) => 
+            {
+                if (_skillTree != null)
+                {
+                    _skillTree.TryUnlockNode(this);
+                }
+            });
+        }
+
+        public void SetState(bool unlocked, bool canUnlock)
+        {
+            IsUnlocked = unlocked;
+            if (unlocked)
+            {
+                if(targetGraphic != null) targetGraphic.color = Color.yellow; 
+                base.SetState(UIState.Disabled);
+            }
+            else
+            {
+                if(targetGraphic != null) targetGraphic.color = canUnlock ? Color.white : Color.grey;
+                base.SetState(canUnlock ? UIState.Interactive : UIState.Disabled);
+            }
+        }
+        
+        public void UnlockForDemo()
+        {
+            IsUnlocked = true;
+        }
+    }
+}// Dateiname: SettingsUI.cs
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+using YourGame.UI.Widgets;
+using System.Collections.Generic;
+using System.Linq; // Added for LINQ
+using System.Collections; // Added for Coroutines
+
+namespace YourGame.UI // Assuming YourGame.UI is your main UI namespace
+{
+    public class SettingsUI : UIWidget
+    {
+        [Header("Language Settings")]
+        public TMP_Dropdown languageDropdown;
+
+        [Header("Volume Settings")]
+        public Slider musicVolumeSlider;
+        public Slider soundEffectsVolumeSlider;
+
+        [Header("Graphics Settings")]
+        public TMP_Dropdown graphicsQualityDropdown;
+
+        [Header("Keybinding Settings")]
+        public GameObject keybindsContainer; // Parent for all keybinding rows
+        public GameObject keybindRowPrefab; // Prefab for a single keybind row (Button + Text)
+        public Button applyKeybindsButton;
+        public Button resetButton;
+
+        // Internal: Mapping from button name to KeyCode (for rebinding)
+        private Dictionary<string, KeyCode> _currentKeyBindings = new Dictionary<string, KeyCode>();
+        private string _keyToRebind = null; // Stores the name of the key currently being rebound
+        private TextMeshProUGUI _currentKeybindText; // Reference to the TextMeshProUGUI of the key being rebound
+
+        [Header("Action Buttons")]
+        public Button saveAndCloseButton;
+        public Button closeButton;
+
+        protected override void Awake()
+        {
+            base.Awake(); // Initialize UIWidget properties
+
+            // Initialize dropdowns
+            InitializeLanguageDropdown();
+            InitializeGraphicsDropdown();
+
+            // Add listeners
+            languageDropdown?.onValueChanged.AddListener(SetLanguage);
+            musicVolumeSlider?.onValueChanged.AddListener(SetMusicVolume);
+            soundEffectsVolumeSlider?.onValueChanged.AddListener(SetSoundEffectsVolume);
+            graphicsQualityDropdown?.onValueChanged.AddListener(SetGraphicsQuality);
+
+            applyKeybindsButton?.onClick.AddListener(ApplyKeybindings);
+            resetButton?.onClick.AddListener(ResetToDefaultKeybindings);
+            saveAndCloseButton?.onClick.AddListener(SaveAndCloseSettings);
+            closeButton?.onClick.AddListener(CloseSettings);
+        }
+
+        protected override void OnEnable()
+        {
+            base.OnEnable();
+            LoadSettings(); // Load current settings when panel becomes active
+            PopulateKeybindsUI(); // Populate keybinding UI when panel becomes active
+        }
+
+        private void InitializeLanguageDropdown()
+        {
+            languageDropdown.ClearOptions();
+            // In a real game, you'd get these from LanguageManager
+            // For this example, hardcode some languages
+            List<string> languages = new List<string> { "English", "Deutsch", "Español" };
+            languageDropdown.AddOptions(languages);
+            // Set initial value based on current language (e.g., from LanguageManager)
+            // languageDropdown.value = languages.IndexOf(LanguageManager.Instance.GetCurrentLanguageName());
+        }
+
+        private void InitializeGraphicsDropdown()
+        {
+            graphicsQualityDropdown.ClearOptions();
+            List<string> qualityNames = QualitySettings.names.ToList();
+            graphicsQualityDropdown.AddOptions(qualityNames);
+            graphicsQualityDropdown.value = QualitySettings.GetQualityLevel();
+        }
+
+        private void PopulateKeybindsUI()
+        {
+            // Clear existing keybind rows
+            foreach (Transform child in keybindsContainer.transform)
+            {
+                Destroy(child.gameObject);
+            }
+
+            // Get current keybindings from InputManager (assuming it exists and has public properties)
+            if (GameManager.Instance?.inputManager != null)
+            {
+                InputManager inputManager = GameManager.Instance.inputManager;
+                _currentKeyBindings = new Dictionary<string, KeyCode>
+                {
+                    { "Jump", inputManager.jumpKey },
+                    { "Sprint", inputManager.sprintKey },
+                    { "Interact", inputManager.interactKey },
+                    { "Menu", inputManager.menuKey },
+                    { "Forward", inputManager.forwardKey },
+                    { "Backward", inputManager.backwardKey },
+                    { "Left", inputManager.leftKey },
+                    { "Right", inputManager.rightKey },
+                    { "Inventory", inputManager.inventoryKey },
+                    { "Chat", inputManager.chatKey },
+                    { "QuestLog", inputManager.questLogKey }
+                };
+
+                foreach (var kvp in _currentKeyBindings)
+                {
+                    GameObject row = Instantiate(keybindRowPrefab, keybindsContainer.transform);
+                    TextMeshProUGUI actionText = row.transform.Find("ActionText")?.GetComponent<TextMeshProUGUI>();
+                    TextMeshProUGUI keyText = row.transform.Find("KeyText")?.GetComponent<TextMeshProUGUI>();
+                    Button rebindButton = row.GetComponent<Button>();
+
+                    if (actionText != null) actionText.text = kvp.Key;
+                    if (keyText != null) keyText.text = kvp.Value.ToString();
+                    
+                    if (rebindButton != null)
+                    {
+                        string actionName = kvp.Key; // Capture for lambda
+                        rebindButton.onClick.AddListener(() => StartRebind(actionName, keyText));
+                    }
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[SettingsUI] InputManager not found. Keybinding UI cannot be populated.");
+            }
+        }
+
+        private void LoadSettings()
+        {
+            // Load language setting (example, assuming LanguageManager stores/retrieves current language)
+            // languageDropdown.value = LanguageManager.Instance.GetLanguageIndex();
+
+            // Load volume settings (example, assuming AudioManager stores/retrieves volumes)
+            if (GameManager.Instance?.LoadedGameData != null)
+            {
+                musicVolumeSlider.value = GameManager.Instance.LoadedGameData.musicVolume;
+                // Add sound effects volume if stored in GameData
+            }
+            else
+            {
+                Debug.LogWarning("[SettingsUI] LoadedGameData is null. Cannot load volume settings.");
+            }
+            
+            // Load graphics quality
+            graphicsQualityDropdown.value = QualitySettings.GetQualityLevel();
+        }
+
+        private void SetLanguage(int index)
+        {
+            string selectedLanguage = languageDropdown.options[index].text;
+            Debug.Log($"[SettingsUI] Setting language to: {selectedLanguage}");
+            // Replace with actual LanguageManager call
+            // LanguageManager.Instance?.SetLanguage(selectedLanguageCode); 
+        }
+
+        private void SetMusicVolume(float volume)
+        {
+            Debug.Log($"[SettingsUI] Setting music volume to: {volume}");
+            if (GameManager.Instance?.LoadedGameData != null)
+            {
+                GameManager.Instance.LoadedGameData.musicVolume = volume;
+                // AudioManager.Instance?.SetMusicVolume(volume); // Call actual AudioManager
+            }
+        }
+
+        private void SetSoundEffectsVolume(float volume)
+        {
+            Debug.Log($"[SettingsUI] Setting sound effects volume to: {volume}");
+            // Add to GameData and call AudioManager if available
+            // AudioManager.Instance?.SetSoundEffectsVolume(volume);
+        }
+
+        private void SetGraphicsQuality(int index)
+        {
+            QualitySettings.SetQualityLevel(index, true); // true to apply immediately
+            Debug.Log($"[SettingsUI] Setting graphics quality to: {QualitySettings.names[index]}");
+        }
+
+        private void StartRebind(string keyName, TextMeshProUGUI keyText)
+        {
+            if (_keyToRebind != null) return; // Already rebinding a key
+
+            _keyToRebind = keyName;
+            _currentKeybindText = keyText;
+            _currentKeybindText.text = "Press any key...";
+            Debug.Log($"[SettingsUI] Rebinding '{keyName}'. Press any key...");
+            StartCoroutine(WaitForInput());
+        }
+
+        private IEnumerator WaitForInput()
+        {
+            while (!Input.anyKeyDown)
+            {
+                yield return null;
+            }
+
+            foreach (KeyCode kc in System.Enum.GetValues(typeof(KeyCode)))
+            {
+                if (Input.GetKeyDown(kc))
+                {
+                    _currentKeyBindings[_keyToRebind] = kc;
+                    _currentKeybindText.text = kc.ToString();
+                    Debug.Log($"[SettingsUI] Rebound '{_keyToRebind}' to '{kc}'.");
+                    _keyToRebind = null;
+                    _currentKeybindText = null;
+                    yield break;
+                }
+            }
+            // Fallback if no key was detected (shouldn't happen with Input.anyKeyDown)
+            Debug.LogWarning("[SettingsUI] No key detected during rebind. Rebind cancelled.");
+            _currentKeybindText.text = _currentKeyBindings[_keyToRebind].ToString(); // Revert text
+            _keyToRebind = null;
+            _currentKeybindText = null;
+        }
+
+        private void ApplyKeybindings()
+        {
+            if (GameManager.Instance?.inputManager != null)
+            {
+                InputManager inputManager = GameManager.Instance.inputManager;
+                inputManager.jumpKey = _currentKeyBindings["Jump"];
+                inputManager.sprintKey = _currentKeyBindings["Sprint"];
+                inputManager.interactKey = _currentKeyBindings["Interact"];
+                inputManager.menuKey = _currentKeyBindings["Menu"];
+                inputManager.forwardKey = _currentKeyBindings["Forward"];
+                inputManager.backwardKey = _currentKeyBindings["Backward"];
+                inputManager.leftKey = _currentKeyBindings["Left"];
+                inputManager.rightKey = _currentKeyBindings["Right"];
+                inputManager.inventoryKey = _currentKeyBindings["Inventory"];
+                inputManager.chatKey = _currentKeyBindings["Chat"];
+                inputManager.questLogKey = _currentKeyBindings["QuestLog"];
+
+                inputManager.SaveKeyBindings();
+                Debug.Log("[SettingsUI] Keybindings applied and saved.");
+            }
+            else
+            {
+                Debug.LogError("[SettingsUI] InputManager not found. Cannot apply keybindings.");
+            }
+        }
+
+        private void ResetToDefaultKeybindings()
+        {
+            // Reset _currentKeyBindings to Unity's default or your game's initial defaults
+            _currentKeyBindings["Jump"] = KeyCode.Space;
+            _currentKeyBindings["Sprint"] = KeyCode.LeftShift;
+            _currentKeyBindings["Interact"] = KeyCode.E;
+            _currentKeyBindings["Menu"] = KeyCode.Escape;
+            _currentKeyBindings["Forward"] = KeyCode.W;
+            _currentKeyBindings["Backward"] = KeyCode.S;
+            _currentKeyBindings["Left"] = KeyCode.A;
+            _currentKeyBindings["Right"] = KeyCode.D;
+            _currentKeyBindings["Inventory"] = KeyCode.I;
+            _currentKeyBindings["Chat"] = KeyCode.C;
+            _currentKeyBindings["QuestLog"] = KeyCode.Q;
+
+            PopulateKeybindsUI(); // Refresh UI with default values
+            ApplyKeybindings(); // Apply and save the default keybindings
+            Debug.Log("[SettingsUI] Keybindings reset to default.");
+        }
+
+        private void SaveAndCloseSettings()
+        {
+            ApplyKeybindings(); // Ensure keybindings are saved
+            // Save other settings if not already saved by their listeners (e.g., volume)
+            if (GameManager.Instance?.LoadedGameData != null && GameManager.Instance?.saveSystem != null)
+            {
+                GameManager.Instance.saveSystem.SaveData(GameManager.Instance.LoadedGameData);
+                Debug.Log("[SettingsUI] All settings saved.");
+            }
+            CloseSettings();
+        }
+
+        private void CloseSettings()
+        {
+            UIManager.Instance?.CloseCurrentPanel();
+            Debug.Log("[SettingsUI] Settings UI closed.");
+        }
+    }
+}// Dateiname: UIMinimap.cs (Aktualisiert)
+using UnityEngine;
+using UnityEngine.UI;
+using System.Collections.Generic;
+
+namespace YourGame.UI.Widgets
+{
+    // Hilfsklasse für die Icons auf der Karte
+    public class UIMinimapIcon : MonoBehaviour
+    {
+        public Image IconImage;
+        public Transform WorldTarget; // Das Objekt in der Spielwelt
+    }
+
+    public class UIMinimap : UIWidget
+    {
+        [Header("Minimap Components")]
+        [SerializeField] private RectTransform _iconContainer;
+        [SerializeField] private UIMinimapIcon _playerIcon;
+        [SerializeField] private GameObject _iconPrefab; // Ein Prefab für NPCs, Quests etc.
+
+        [Header("Minimap Settings")]
+        [SerializeField] private Transform _playerTransform;
+        [SerializeField] private float _mapRadius = 100f; // Radius, in dem Objekte auf der Karte angezeigt werden
+        [SerializeField] private float _zoomLevel = 1f;
+
+        private List<UIMinimapIcon> _trackedIcons = new List<UIMinimapIcon>();
+
+        // Weisen Sie den Spieler zu, z.B. beim Spielstart
+        public void SetPlayer(Transform player)
+        {
+            _playerTransform = player;
+        }
+        
+        // Fügt ein neues Icon hinzu, das ein Welt-Objekt verfolgt
+        public UIMinimapIcon AddIcon(Transform target, Sprite sprite, Color color)
+        {
+            if (_iconPrefab == null) return null;
+
+            GameObject iconGO = Instantiate(_iconPrefab, _iconContainer);
+            UIMinimapIcon newIcon = iconGO.GetComponent<UIMinimapIcon>();
+            if (newIcon == null) newIcon = iconGO.AddComponent<UIMinimapIcon>();
+            
+            newIcon.IconImage = iconGO.GetComponent<Image>();
+            newIcon.IconImage.sprite = sprite;
+            newIcon.IconImage.color = color;
+            newIcon.WorldTarget = target;
+            
+            _trackedIcons.Add(newIcon);
+            return newIcon;
+        }
+        
+        // Aktualisiert die Positionen aller Icons
+        void LateUpdate()
+        {
+            if (_playerTransform == null) return;
+
+            // Rotiere den Icon-Container entgegen der Spieler-Rotation, damit die Karte rotiert
+            _iconContainer.rotation = Quaternion.Euler(0, 0, _playerTransform.eulerAngles.y);
+
+            // Aktualisiere die Positionen der anderen Icons relativ zum Spieler
+            foreach (var icon in _trackedIcons)
+            {
+                if (icon.WorldTarget == null)
+                {
+                    icon.gameObject.SetActive(false);
+                    continue;
+                }
+
+                Vector3 direction = icon.WorldTarget.position - _playerTransform.position;
+                float distance = Vector3.Distance(icon.WorldTarget.position, _playerTransform.position);
+
+                // Blende Icons aus, die zu weit weg sind
+                if (distance > _mapRadius)
+                {
+                    icon.gameObject.SetActive(false);
+                    continue;
+                }
+                
+                icon.gameObject.SetActive(true);
+
+                // Berechne die 2D-Position auf der Minimap
+                float mapX = direction.x / _mapRadius * (_iconContainer.rect.width / 2) * _zoomLevel;
+                float mapY = direction.z / _mapRadius * (_iconContainer.rect.height / 2) * _zoomLevel;
+
+                icon.GetComponent<RectTransform>().anchoredPosition = new Vector2(mapX, mapY);
+            }
+        }
+    }
+}// Dateiname: UIToggleButton.cs (Korrigiert)
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.EventSystems;
+
+namespace YourGame.UI.Widgets
+{
+    public class UIToggleButton : UIButton
+    {
+        [Header("Toggle Settings")]
+        [SerializeField] private bool _isChecked;
+        [SerializeField] private GameObject _checkmark;
+
+        public UnityEvent<bool> OnCheckChanged;
+
+        public bool IsChecked
+        {
+            get => _isChecked;
+            set {
+                if (_isChecked == value) return;
+                _isChecked = value;
+                UpdateCheckmark();
+                OnCheckChanged?.Invoke(_isChecked);
+            }
+        }
+
+        protected override void Awake()
+        {
+            base.Awake();
+
+            // KORREKTUR: Event initialisieren.
+            if (OnCheckChanged == null) OnCheckChanged = new UnityEvent<bool>();
+
+            UpdateCheckmark();
+        }
+
+        public override void OnPointerClick(PointerEventData eventData)
+        {
+            if (CurrentState == UIState.Interactive)
+            {
+                IsChecked = !IsChecked;
+                base.OnPointerClick(eventData);
+            }
+        }
+        
+        private void UpdateCheckmark()
+        {
+            if (_checkmark != null)
+            {
+                _checkmark.SetActive(_isChecked);
+            }
+        }
+    }
+}using UnityEngine;
+
+[CreateAssetMenu(fileName = "UITheme", menuName = "YourGame/UI/New UI Theme")]
+public class UIThemeData : ScriptableObject
+{
+    [Header("Colors")]
+    public Color primaryTextColor;
+    public Color buttonNormalColor;
+    public Color buttonHighlightColor;
+    
+    [Header("Sprites")]
+    public Sprite windowBackground;
+    public Sprite buttonSprite;
+
+    [Header("Fonts")]
+    public TMPro.TMP_FontAsset mainFont;
+}// Dateiname: UIWidgetCustomEditor.cs
+// Muss im "Editor"-Ordner platziert werden.
+using UnityEditor;
+using UnityEngine;
+using YourGame.UI.Widgets;
+
+[CustomEditor(typeof(UIWidget), true)] // true = auch für abgeleitete Klassen
+public class UIWidgetCustomEditor : Editor
+{
+    public override void OnInspectorGUI()
+    {
+        // Zeichnet den Standard-Inspector
+        base.OnInspectorGUI();
+
+        UIWidget widget = (UIWidget)target;
+
+        // Zeigt den Live-Zustand des Widgets im Play-Modus an
+        if (Application.isPlaying)
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Live Status", EditorStyles.boldLabel);
+            GUI.enabled = false; // Macht die Felder schreibgeschützt
+            EditorGUILayout.Toggle("Is Visible", widget.IsVisible);
+            EditorGUILayout.EnumPopup("Current State", widget.CurrentState);
+            GUI.enabled = true;
+        }
+
+        // Fügt benutzerdefinierte Buttons für das Testen im Editor hinzu
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Editor Testing", EditorStyles.boldLabel);
+        
+        // Horizontale Anordnung für Show/Hide/Toggle
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("Show"))
+        {
+            widget.Show();
+        }
+        if (GUILayout.Button("Hide"))
+        {
+            widget.Hide();
+        }
+        if (GUILayout.Button("Toggle"))
+        {
+            widget.Toggle();
+        }
+        EditorGUILayout.EndHorizontal();
+
+        // Horizontale Anordnung für Zustandsänderungen
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("Set Interactive"))
+        {
+            widget.SetState(UIWidget.UIState.Interactive);
+        }
+        if (GUILayout.Button("Set Disabled"))
+        {
+            widget.SetState(UIWidget.UIState.Disabled);
+        }
+        EditorGUILayout.EndHorizontal();
+
+        // Button für Tweening-Demonstration
+        if (GUILayout.Button("Demo Tween Animation"))
+        {
+            // Führt eine vordefinierte Animation aus, um die Funktion zu testen
+            var rt = widget.GetComponent<RectTransform>();
+            if (rt != null)
+            {
+                Vector2 originalPos = rt.anchoredPosition;
+                widget.TweenPosition(originalPos + new Vector2(50, 0), 0.5f, Easing.EaseType.EaseOutQuad);
+            }
+        }
+    }
+}using System.Collections.Generic;
+using UnityEngine;
+
+namespace YourGame.UI.Widgets
+{
+    public class UITabView : UIWidget
+    {
+        [Header("Tab View Settings")]
+        [SerializeField] private List<UITab> _tabs = new List<UITab>();
+        [SerializeField] private int _startingTabIndex = 0;
+        
+        private UITab _currentActiveTab;
+
+        protected override void Awake()
+        {
+            base.Awake();
+            // Registriere Klick-Events für alle Tabs
+            foreach (var tab in _tabs)
+            {
+                if (tab != null)
+                {
+                    tab.OnClickEvent.AddListener((widget, data) => OnTabSelected(widget as UITab));
+                }
+            }
+        }
+
+        protected override void OnEnable()
+        {
+            base.OnEnable();
+            // Wähle den Start-Tab (sofern gültig)
+            if (_tabs.Count > 0 && _startingTabIndex < _tabs.Count && _tabs[_startingTabIndex] != null)
+            {
+                OnTabSelected(_tabs[_startingTabIndex]);
+            }
+        }
+
+        public void OnTabSelected(UITab tab)
+        {
+            if (tab == null || _currentActiveTab == tab) return;
+            
+            // Deaktiviere das Panel des vorherigen Tabs
+            if (_currentActiveTab != null)
+            {
+                // KORREKTUR: Die Zeile, die den Zustand des alten Tabs ändert, wurde entfernt.
+                // _currentActiveTab.SetState(UIState.Interactive); 
+                if(_currentActiveTab.TabPage != null) _currentActiveTab.TabPage.SetActive(false);
+            }
+
+            // Aktiviere den neuen Tab und sein Panel
+            _currentActiveTab = tab;
+            
+            // KORREKTUR: Die Zeile, die den Zustand des neuen, aktiven Tabs ändert, wurde entfernt.
+            // _currentActiveTab.SetState(UIState.Disabled); 
+            if(_currentActiveTab.TabPage != null) _currentActiveTab.TabPage.SetActive(true);
+        }
+    }
+}// Dateiname: UIWidget.cs (Vollständig korrigiert)
+using System;
+using System.Collections;
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+// namespace YourGame.UI.Widgets
+namespace YourGame.UI.Widgets
+{
+    // Hilfsklasse für Easing-Funktionen
+    public static class Easing
+    {
+        public enum EaseType { Linear, EaseInQuad, EaseOutQuad, EaseInOutQuad, EaseOutBack, EaseOutElastic }
+        
+        public static float GetValue(EaseType easeType, float start, float end, float value)
+        {
+            float d = end - start;
+            switch (easeType)
+            {
+                case EaseType.EaseInQuad:
+                    return d * value * value + start;
+                case EaseType.EaseOutQuad:
+                    return -d * value * (value - 2) + start;
+                case EaseType.EaseInOutQuad:
+                    value /= .5f;
+                    if (value < 1) return d * 0.5f * value * value + start;
+                    value--;
+                    return -d * 0.5f * (value * (value - 2) - 1) + start;
+                case EaseType.EaseOutBack:
+                    float c1 = 1.70158f;
+                    float c3 = c1 + 1f;
+                    return d * (1 + c3 * Mathf.Pow(value - 1, 3) + c1 * Mathf.Pow(value - 1, 2)) + start;
+                case EaseType.EaseOutElastic:
+                    float c4 = (2 * Mathf.PI) / 3;
+                    if (value == 0) return start;
+                    if (value == 1) return end;
+                    return d * (Mathf.Pow(2, -10 * value) * Mathf.Sin((value * 10 - 0.75f) * c4) + 1) + start;
+                default: // Linear
+                    return Mathf.Lerp(start, end, value);
+            }
+        }
+    }
+
+    [RequireComponent(typeof(CanvasGroup))]
+    public class UIWidget : MonoBehaviour,
+        IPointerEnterHandler, IPointerExitHandler,
+        IPointerDownHandler, IPointerUpHandler,
+        IPointerClickHandler,
+        IBeginDragHandler, IDragHandler, IEndDragHandler
+    {
+        public enum UIState { Interactive, Disabled, NotInteractive }
+
+        [System.Flags]
+        public enum VisualTransition
+        {
+            None = 0,
+            ColorTint = 1,
+            SpriteSwap = 2,
+            Fade = 4,
+            Scale = 8,
+            Slide = 16
+        }
+
+        [Serializable]
+        public class TooltipInfo
+        {
+            public bool Enabled = true;
+            [TextArea] public string TooltipText = "";
+            public float Delay = 0.5f;
+            public Vector2 Offset = new Vector2(0, -30);
+        }
+
+        [Serializable]
+        public class ColorTintBlock
+        {
+            public Color normalColor = Color.white;
+            public Color hoverColor = new Color(0.9f, 0.9f, 0.9f, 1f);
+            public Color pressedColor = new Color(0.75f, 0.75f, 0.75f, 1f);
+            public Color disabledColor = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+            public float fadeDuration = 0.1f;
+        }
+
+        [Serializable]
+        public class SlideTransition
+        {
+            public Vector2 startOffset = new Vector2(0, -50);
+            public Vector2 endOffset = Vector2.zero;
+        }
+
+        [Tooltip("Eindeutiger Name des Widgets.")]
+        [SerializeField] private string widgetName;
+        [Header("Behavior")]
+        [SerializeField] protected UIState startingState = UIState.Interactive;
+        [SerializeField] protected bool deactivateOnHide = true;
+        [SerializeField] protected bool focusOnShow = true;
+        [SerializeField] protected KeyCode toggleKey = KeyCode.None;
+        [Header("Animation")]
+        [SerializeField] protected float animationDuration = 0.25f;
+        [SerializeField] protected Easing.EaseType animationEaseType = Easing.EaseType.EaseOutQuad;
+        [Header("Visuals")]
+        [SerializeField] private VisualTransition transition = VisualTransition.Fade;
+        [SerializeField] protected Graphic targetGraphic;
+        [SerializeField] private ColorTintBlock colorTints = new ColorTintBlock();
+        [SerializeField] private SlideTransition slideTransition = new SlideTransition();
+        [Tooltip("Wackelt bei Mausberührung.")]
+        [SerializeField] private bool wobbleOnHover = false;
+        [Header("Sound Events")]
+        [SerializeField] protected AudioClip showSound;
+        [SerializeField] protected AudioClip hideSound;
+        [SerializeField] protected AudioClip clickSound;
+        [SerializeField] protected AudioClip hoverSound;
+        [Header("Tooltip")]
+        [SerializeField] public TooltipInfo Tooltip;
+        public UnityEvent OnShowStart { get; set; } = new UnityEvent();
+        public UnityEvent OnShowComplete { get; set; } = new UnityEvent();
+        public UnityEvent OnHideStart { get; set; } = new UnityEvent();
+        public UnityEvent OnHideComplete { get; set; } = new UnityEvent();
+        // KORREKTUR: Fehlende Event-Deklarationen hinzugefügt
+        public UnityEvent OnFocusGainedEvent { get; set; } = new UnityEvent();
+        public UnityEvent OnFocusLostEvent { get; set; } = new UnityEvent();
+        public UnityEvent<UIWidget, PointerEventData> OnClickEvent { get; set; } = new UnityEvent<UIWidget, PointerEventData>();
+        public UnityEvent<UIWidget, bool> OnPressEvent { get; set; } = new UnityEvent<UIWidget, bool>();
+        public UnityEvent<UIWidget, bool> OnHoverEvent { get; set; } = new UnityEvent<UIWidget, bool>();
+        public UnityEvent<UIWidget, PointerEventData> OnDragStartEvent { get; set; } = new UnityEvent<UIWidget, PointerEventData>();
+        public UnityEvent<UIWidget, PointerEventData> OnDragEvent { get; set; } = new UnityEvent<UIWidget, PointerEventData>();
+        public UnityEvent<UIWidget, PointerEventData> OnDragEndEvent { get; set; } = new UnityEvent<UIWidget, PointerEventData>();
+        public string Name
+        {
+            get => widgetName;
+            set => widgetName = value;
+        }
+
+        public bool IsVisible => _canvasGroup != null && gameObject.activeSelf && _canvasGroup.alpha > 0.99f;
+        public UIState CurrentState { get; private set; }
+        public object UserData { get; set; }
+        public UIMenu ParentMenu { get; internal set; }
+        public RectTransform RectTransform => _rectTransform;
+
+        protected CanvasGroup _canvasGroup;
+        protected RectTransform _rectTransform;
+        private Coroutine _animationCoroutine;
+        private Coroutine _colorFadeCoroutine;
+        private Coroutine _wobbleCoroutine;
+        protected bool _isHovering;
+        protected bool _isPressed;
+        protected bool _isDragging;
+        private Vector2 _originalPosition;
+        private Vector3 _originalScale;
+
+        protected virtual void Awake()
+        {
+            _rectTransform = GetComponent<RectTransform>();
+            _canvasGroup = GetComponent<CanvasGroup>();
+            if (targetGraphic == null) targetGraphic = GetComponent<Graphic>();
+
+            _originalPosition = _rectTransform.anchoredPosition;
+            _originalScale = _rectTransform.localScale;
+            if (gameObject.activeInHierarchy)
+            {
+                SetState(startingState);
+            }
+            else
+            {
+                if (_canvasGroup != null) _canvasGroup.alpha = 0f;
+                SetState(UIState.Disabled);
+                if (deactivateOnHide)
+                {
+                    gameObject.SetActive(false);
+                }
+            }
+        }
+
+        protected virtual void OnEnable()
+        {
+            if (UIWidgetManager.Instance != null) UIWidgetManager.Instance.RegisterWidget(this);
+            if (toggleKey != KeyCode.None && UIInputHandler.Instance != null)
+            {
+                UIInputHandler.Instance.RegisterToggleKey(toggleKey, this);
+            }
+            DoColorTransition(CurrentState, true);
+        }
+
+        protected virtual void OnDisable()
+        {
+            if (UIWidgetManager.Instance != null) UIWidgetManager.Instance.UnregisterWidget(this);
+            if (UIInputHandler.Instance != null && toggleKey != KeyCode.None) UIInputHandler.Instance.UnregisterToggleKey(toggleKey, this);
+
+            _isHovering = false;
+            _isPressed = false;
+        }
+
+        public virtual void Show()
+        {
+            if (IsVisible && gameObject.activeSelf) return;
+            if (_animationCoroutine != null) StopCoroutine(_animationCoroutine);
+
+            OnShowStart?.Invoke();
+            gameObject.SetActive(true);
+            SetState(UIState.Interactive);
+
+            if (focusOnShow && transform.parent != null)
+            {
+                transform.SetAsLastSibling();
+            }
+            PlaySound(showSound);
+
+            _animationCoroutine = StartCoroutine(AnimateShow());
+        }
+
+        public virtual void Hide()
+        {
+            if (!IsVisible && !gameObject.activeSelf) return;
+            if (_animationCoroutine != null) StopCoroutine(_animationCoroutine);
+
+            OnHideStart?.Invoke();
+            SetState(UIState.NotInteractive);
+            PlaySound(hideSound);
+
+            _animationCoroutine = StartCoroutine(AnimateHide());
+        }
+
+        private IEnumerator AnimateShow()
+        {
+            // Setze Startzustände
+            if ((transition & VisualTransition.Fade) != 0) _canvasGroup.alpha = 0f;
+            if ((transition & VisualTransition.Slide) != 0) _rectTransform.anchoredPosition = _originalPosition + slideTransition.startOffset;
+            if ((transition & VisualTransition.Scale) != 0) _rectTransform.localScale = Vector3.zero;
+            // Starte Animationen
+            if ((transition & VisualTransition.Fade) != 0)
+                StartCoroutine(AnimateAlpha(1f, animationDuration, animationEaseType));
+            if ((transition & VisualTransition.Slide) != 0)
+                TweenPosition(_originalPosition + slideTransition.endOffset, animationDuration, animationEaseType);
+            if ((transition & VisualTransition.Scale) != 0)
+                TweenScale(_originalScale, animationDuration, animationEaseType);
+            yield return new WaitForSeconds(animationDuration);
+
+            OnShowComplete?.Invoke();
+            _animationCoroutine = null;
+        }
+
+        private IEnumerator AnimateHide()
+        {
+            // Starte Animationen
+            if ((transition & VisualTransition.Fade) != 0)
+                StartCoroutine(AnimateAlpha(0f, animationDuration, animationEaseType));
+            if ((transition & VisualTransition.Slide) != 0)
+                TweenPosition(_originalPosition + slideTransition.startOffset, animationDuration, animationEaseType);
+            if ((transition & VisualTransition.Scale) != 0)
+                TweenScale(Vector3.zero, animationDuration, animationEaseType);
+            yield return new WaitForSeconds(animationDuration);
+
+            OnHideComplete?.Invoke();
+            if (deactivateOnHide)
+            {
+                gameObject.SetActive(false);
+            }
+            _animationCoroutine = null;
+        }
+
+        public virtual void Toggle()
+        {
+            if (IsVisible) Hide();
+            else Show();
+        }
+
+        public virtual void SetState(UIState newState)
+        {
+            CurrentState = newState;
+            if (_canvasGroup != null)
+            {
+                _canvasGroup.interactable = (newState == UIState.Interactive);
+                _canvasGroup.blocksRaycasts = (newState != UIState.Disabled);
+            }
+            DoColorTransition(CurrentState, false);
+        }
+
+        public Coroutine TweenPosition(Vector2 targetPosition, float duration, Easing.EaseType ease)
+        {
+            return StartCoroutine(AnimateVector2((v) => _rectTransform.anchoredPosition = v, _rectTransform.anchoredPosition, targetPosition, duration, ease));
+        }
+
+        public Coroutine TweenScale(Vector3 targetScale, float duration, Easing.EaseType ease)
+        {
+            return StartCoroutine(AnimateVector3((v) => _rectTransform.localScale = v, _rectTransform.localScale, targetScale, duration, ease));
+        }
+
+        public Coroutine TweenRotation(Quaternion targetRotation, float duration, Easing.EaseType ease)
+        {
+            return StartCoroutine(AnimateQuaternion((q) => _rectTransform.localRotation = q, _rectTransform.localRotation, targetRotation, duration, ease));
+        }
+
+        public virtual void OnFocusGained() => OnFocusGainedEvent?.Invoke();
+        public virtual void OnFocusLost() => OnFocusLostEvent?.Invoke();
+        public virtual void SetText(string text)
+        {
+            TMPro.TextMeshProUGUI tmpText = GetComponentInChildren<TMPro.TextMeshProUGUI>();
+            if (tmpText != null) tmpText.text = text;
+        }
+
+        public virtual void OnPointerEnter(PointerEventData eventData)
+        {
+            _isHovering = true;
+            if (CurrentState == UIState.Interactive)
+            {
+                PlaySound(hoverSound);
+                OnHoverEvent?.Invoke(this, true);
+                DoColorTransition(CurrentState, false);
+
+                if (wobbleOnHover)
+                {
+                    if (_wobbleCoroutine != null) StopCoroutine(_wobbleCoroutine);
+                    _wobbleCoroutine = StartCoroutine(AnimateWobble());
+                }
+            }
+        }
+
+        public virtual void OnPointerExit(PointerEventData eventData)
+        {
+            _isHovering = false;
+            if (CurrentState == UIState.Interactive)
+            {
+                OnHoverEvent?.Invoke(this, false);
+                DoColorTransition(CurrentState, false);
+            }
+        }
+
+        public virtual void OnPointerDown(PointerEventData eventData)
+        {
+            if (CurrentState == UIState.Interactive)
+            {
+                _isPressed = true;
+                OnPressEvent?.Invoke(this, true);
+                DoColorTransition(CurrentState, false);
+            }
+        }
+
+        public virtual void OnPointerUp(PointerEventData eventData)
+        {
+            if (CurrentState == UIState.Interactive)
+            {
+                _isPressed = false;
+                OnPressEvent?.Invoke(this, false);
+                DoColorTransition(CurrentState, false);
+            }
+        }
+
+        public virtual void OnPointerClick(PointerEventData eventData)
+        {
+            if (CurrentState == UIState.Interactive)
+            {
+                PlaySound(clickSound);
+                OnClickEvent?.Invoke(this, eventData);
+            }
+        }
+
+        public virtual void OnBeginDrag(PointerEventData eventData)
+        {
+            _isDragging = true;
+            OnDragStartEvent?.Invoke(this, eventData);
+        }
+
+        public virtual void OnDrag(PointerEventData eventData)
+        {
+            OnDragEvent?.Invoke(this, eventData);
+        }
+
+        public virtual void OnEndDrag(PointerEventData eventData)
+        {
+            _isDragging = false;
+            OnDragEndEvent?.Invoke(this, eventData);
+        }
+
+        private IEnumerator AnimateWobble()
+        {
+            yield return TweenRotation(Quaternion.Euler(0, 0, 5), 0.05f, Easing.EaseType.EaseOutQuad);
+            yield return TweenRotation(Quaternion.Euler(0, 0, -5), 0.1f, Easing.EaseType.EaseOutQuad);
+            yield return TweenRotation(Quaternion.Euler(0, 0, 0), 0.05f, Easing.EaseType.EaseOutQuad);
+            _wobbleCoroutine = null;
+        }
+
+        protected IEnumerator AnimateAlpha(float targetAlpha, float duration, Easing.EaseType ease)
+        {
+            float startAlpha = _canvasGroup.alpha;
+            float timer = 0f;
+            while (timer < duration)
+            {
+                timer += Time.unscaledDeltaTime;
+                float progress = Mathf.Clamp01(timer / duration);
+                _canvasGroup.alpha = Easing.GetValue(ease, startAlpha, targetAlpha, progress);
+                yield return null;
+            }
+            _canvasGroup.alpha = targetAlpha;
+        }
+
+        private IEnumerator AnimateVector3(Action<Vector3> setter, Vector3 start, Vector3 end, float duration, Easing.EaseType ease)
+        {
+            float timer = 0f;
+            while (timer < duration)
+            {
+                timer += Time.unscaledDeltaTime;
+                float progress = Mathf.Clamp01(timer / duration);
+                float easedProgress = Easing.GetValue(ease, 0, 1, progress);
+                setter(Vector3.LerpUnclamped(start, end, easedProgress));
+                yield return null;
+            }
+            setter(end);
+        }
+
+        private IEnumerator AnimateVector2(Action<Vector2> setter, Vector2 start, Vector2 end, float duration, Easing.EaseType ease)
+        {
+            float timer = 0f;
+            while (timer < duration)
+            {
+                timer += Time.unscaledDeltaTime;
+                float progress = Mathf.Clamp01(timer / duration);
+                float easedProgress = Easing.GetValue(ease, 0, 1, progress);
+                setter(Vector2.LerpUnclamped(start, end, easedProgress));
+                yield return null;
+            }
+            setter(end);
+        }
+
+        private IEnumerator AnimateQuaternion(Action<Quaternion> setter, Quaternion start, Quaternion end, float duration, Easing.EaseType ease)
+        {
+            float timer = 0f;
+            while (timer < duration)
+            {
+                timer += Time.unscaledDeltaTime;
+                float progress = Mathf.Clamp01(timer / duration);
+                float easedProgress = Easing.GetValue(ease, 0, 1, progress);
+                setter(Quaternion.SlerpUnclamped(start, end, easedProgress));
+                yield return null;
+            }
+            setter(end);
+        }
+
+
+        protected virtual void DoColorTransition(UIState state, bool instant)
+        {
+            if (targetGraphic == null || (transition & VisualTransition.ColorTint) == 0) return;
+            Color targetColor = colorTints.normalColor;
+            if (state == UIState.Disabled)
+            {
+                targetColor = colorTints.disabledColor;
+            }
+            else if (state == UIState.Interactive)
+            {
+                if (_isPressed) targetColor = colorTints.pressedColor;
+                else if (_isHovering) targetColor = colorTints.hoverColor;
+            }
+
+            if (_colorFadeCoroutine != null) StopCoroutine(_colorFadeCoroutine);
+            if (instant || colorTints.fadeDuration <= 0)
+            {
+                targetGraphic.color = targetColor;
+            }
+            else
+            {
+                _colorFadeCoroutine = StartCoroutine(FadeColor(targetColor, colorTints.fadeDuration));
+            }
+        }
+
+        private IEnumerator FadeColor(Color targetColor, float duration)
+        {
+            float timer = 0f;
+            Color startColor = targetGraphic.color;
+            while (timer < duration)
+            {
+                timer += Time.deltaTime;
+                targetGraphic.color = Color.Lerp(startColor, targetColor, timer / duration);
+                yield return null;
+            }
+            targetGraphic.color = targetColor;
+        }
+
+        protected void PlaySound(AudioClip clip)
+        {
+            if (clip != null && Camera.main != null)
+            {
+                AudioSource audioSource = GetComponent<AudioSource>();
+                if (audioSource == null)
+                {
+                    audioSource = gameObject.AddComponent<AudioSource>();
+                    audioSource.playOnAwake = false;
+                    audioSource.spatialBlend = 0; // 2D-Sound
+                }
+                audioSource.PlayOneShot(clip);
+            }
+        }
+
+        // New public setter methods for editor scripts
+        public void SetWidgetName(string newName)
+        {
+            widgetName = newName;
+        }
+
+        public void SetAnimationDuration(float duration)
+        {
+            animationDuration = duration;
+        }
+
+        public void SetDeactivateOnHide(bool deactivate)
+        {
+            deactivateOnHide = deactivate;
+        }
+
+        public void SetFocusOnShow(bool focus)
+        {
+            focusOnShow = focus;
+        }
+
+        public void SetToggleKey(KeyCode key)
+        {
+            toggleKey = key;
+        }
+    }
+}
