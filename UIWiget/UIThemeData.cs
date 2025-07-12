@@ -1,4 +1,4 @@
-// Dateiname: UIThemeData.cs
+// Dateiname: UIThemeData.cs (Vollständig und korrigiert)
 using UnityEngine;
 using TMPro;
 
@@ -22,4 +22,21 @@ public class UIThemeData : ScriptableObject
     [Header("Schriftarten (Optional)")]
     public TMP_FontAsset mainFont;
     public Color fontColor = Color.black;
+
+    /// <summary>
+    /// NEUE METHODE: Erstellt ein ColorTintBlock-Objekt aus den Farben dieses Themes.
+    /// Dies wird von UIWidget.DoColorTransition() benötigt.
+    /// </summary>
+    /// <returns>Ein konfiguriertes ColorTintBlock-Objekt.</returns>
+    public YourGame.UI.Widgets.UIWidget.ColorTintBlock GetColorTintBlock()
+    {
+        return new YourGame.UI.Widgets.UIWidget.ColorTintBlock
+        {
+            normalColor = this.normalColor,
+            hoverColor = this.hoverColor,
+            pressedColor = this.pressedColor,
+            disabledColor = this.disabledColor,
+            fadeDuration = 0.1f // Standard-Fade-Dauer
+        };
+    }
 }

@@ -1,8 +1,8 @@
-// Dateiname: UIInputHandler.cs (Korrigiert)
+// Dateiname: UIInputHandler.cs
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
-using UnityEngine.EventSystems; // KORRIGIERT: Fehlende using-Anweisung hinzugefügt
+using UnityEngine.EventSystems;
 
 namespace YourGame.UI.Widgets
 {
@@ -26,9 +26,7 @@ namespace YourGame.UI.Widgets
             }
         }
 
-        // Speichert, welche Widgets auf welche Taste reagieren sollen
         private Dictionary<KeyCode, List<UIWidget>> _keyBindings = new Dictionary<KeyCode, List<UIWidget>>();
-        // System für UI-Fokus und Navigation
         private UIWidget _currentlyFocusedWidget;
         public UIWidget FocusedWidget => _currentlyFocusedWidget;
 
@@ -45,16 +43,13 @@ namespace YourGame.UI.Widgets
 
         void Update()
         {
-            // Bestehende Logik für Toggle-Tasten
             if (_keyBindings.Count > 0)
             {
-                // Um Modifikationen während der Iteration zu vermeiden, falls ein Toggle die Liste ändert.
                 var keys = _keyBindings.Keys.ToList();
                 foreach (var key in keys)
                 {
                     if (Input.GetKeyDown(key))
                     {
-                        // Eine Kopie der Liste erstellen
                         var widgetsToToggle = _keyBindings[key].ToList();
                         foreach (var widget in widgetsToToggle)
                         {
@@ -70,19 +65,33 @@ namespace YourGame.UI.Widgets
             // Logik für UI-Navigation mit dem fokussierten Widget
             if (_currentlyFocusedWidget != null)
             {
-                // Beispiel für eine "Submit"-Aktion auf dem fokussierten Widget
-                if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+                // Navigation
+                if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetAxis("Vertical") > 0.5f)
                 {
-                    // Simulieren eines Klicks auf das fokussierte Element
+                    if (_currentlyFocusedWidget.selectOnUp != null) SetFocus(_currentlyFocusedWidget.selectOnUp);
+                }
+                else if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetAxis("Vertical") < -0.5f)
+                {
+                    if (_currentlyFocusedWidget.selectOnDown != null) SetFocus(_currentlyFocusedWidget.selectOnDown);
+                }
+                else if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetAxis("Horizontal") < -0.5f)
+                {
+                    if (_currentlyFocusedWidget.selectOnLeft != null) SetFocus(_currentlyFocusedWidget.selectOnLeft);
+                }
+                else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetAxis("Horizontal") > 0.5f)
+                {
+                    if (_currentlyFocusedWidget.selectOnRight != null) SetFocus(_currentlyFocusedWidget.selectOnRight);
+                }
+                
+                // Bestätigungs-Aktion (Submit)
+                if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || Input.GetKeyDown(KeyCode.JoystickButton0))
+                {
                     var pointerData = new PointerEventData(EventSystem.current);
                     _currentlyFocusedWidget.OnPointerClick(pointerData);
                 }
             }
         }
 
-        /// <summary>
-        /// Registriert ein UIWidget für eine bestimmte Toggle-Taste.
-        /// </summary>
         public void RegisterToggleKey(KeyCode key, UIWidget widget)
         {
             if (key == KeyCode.None || widget == null) return;
@@ -96,9 +105,6 @@ namespace YourGame.UI.Widgets
             }
         }
 
-        /// <summary>
-        /// Deregistriert ein UIWidget von einer bestimmten Toggle-Taste.
-        /// </summary>
         public void UnregisterToggleKey(KeyCode key, UIWidget widget)
         {
             if (key == KeyCode.None || widget == null) return;
@@ -112,22 +118,17 @@ namespace YourGame.UI.Widgets
             }
         }
 
-        /// <summary>
-        /// Setzt den Fokus auf ein bestimmtes UIWidget.
-        /// Nützlich für Tastatur- und Gamepad-Navigation.
-        /// </summary>
-        /// <param name="widget">Das Widget, das den Fokus erhalten soll.</param>
         public void SetFocus(UIWidget widget)
         {
             if (_currentlyFocusedWidget == widget) return;
-            // Altes Widget verliert den Fokus
+            
             if (_currentlyFocusedWidget != null)
             {
                 _currentlyFocusedWidget.OnFocusLost();
             }
 
             _currentlyFocusedWidget = widget;
-            // Neues Widget erhält den Fokus
+            
             if (_currentlyFocusedWidget != null)
             {
                 _currentlyFocusedWidget.OnFocusGained();

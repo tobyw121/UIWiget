@@ -1,3 +1,4 @@
+// Dateiname: UIWidget.cs
 using System;
 using System.Collections;
 using UnityEngine;
@@ -89,21 +90,40 @@ namespace YourGame.UI.Widgets
 
         [Tooltip("Eindeutiger Name des Widgets.")]
         [SerializeField] private string widgetName;
+        
         [Header("Behavior")]
         [SerializeField] protected UIState startingState = UIState.Interactive;
         [SerializeField] protected bool deactivateOnHide = true;
         [SerializeField] protected bool focusOnShow = true;
         [SerializeField] protected KeyCode toggleKey = KeyCode.None;
+
+        [Header("Navigation (Keyboard/Gamepad)")]
+        [Tooltip("Das Widget, das fokussiert wird, wenn die 'Nach-Oben'-Taste gedrückt wird.")]
+        public UIWidget selectOnUp;
+        [Tooltip("Das Widget, das fokussiert wird, wenn die 'Nach-Unten'-Taste gedrückt wird.")]
+        public UIWidget selectOnDown;
+        [Tooltip("Das Widget, das fokussiert wird, wenn die 'Nach-Links'-Taste gedrückt wird.")]
+        public UIWidget selectOnLeft;
+        [Tooltip("Das Widget, das fokussiert wird, wenn die 'Nach-Rechts'-Taste gedrückt wird.")]
+        public UIWidget selectOnRight;
+        
         [Header("Animation")]
         [SerializeField] protected float animationDuration = 0.25f;
         [SerializeField] protected Easing.EaseType animationEaseType = Easing.EaseType.EaseOutQuad;
+        
         [Header("Visuals")]
         [SerializeField] private VisualTransition transition = VisualTransition.Fade;
         [SerializeField] protected Graphic targetGraphic;
+        
+        [Tooltip("Wenn hier ein Theme zugewiesen wird, überschreibt es das globale Theme des UIThemeManagers.")]
+        [SerializeField] private UIThemeData themeOverride;
+        
         [SerializeField] private ColorTintBlock colorTints = new ColorTintBlock();
         [SerializeField] private SlideTransition slideTransition = new SlideTransition();
+        
         [Tooltip("Wackelt bei Mausberührung.")]
         [SerializeField] private bool wobbleOnHover = false;
+        
         [Header("Sound Events")]
         [SerializeField] protected AudioClip showSound;
         [SerializeField] protected AudioClip hideSound;
@@ -147,15 +167,19 @@ namespace YourGame.UI.Widgets
         protected bool _isDragging;
         private Vector2 _originalPosition;
         private Vector3 _originalScale;
+        protected UIThemeData _activeTheme;
 
         protected virtual void Awake()
         {
             _rectTransform = GetComponent<RectTransform>();
             _canvasGroup = GetComponent<CanvasGroup>();
             if (targetGraphic == null) targetGraphic = GetComponent<Graphic>();
+            
+            ApplyTheme();
 
             _originalPosition = _rectTransform.anchoredPosition;
             _originalScale = _rectTransform.localScale;
+            
             if (gameObject.activeInHierarchy)
             {
                 SetState(startingState);
@@ -173,6 +197,8 @@ namespace YourGame.UI.Widgets
 
         protected virtual void OnEnable()
         {
+            ApplyTheme();
+            
             if (UIWidgetManager.Instance != null) UIWidgetManager.Instance.RegisterWidget(this);
             if (toggleKey != KeyCode.None && UIInputHandler.Instance != null)
             {
@@ -370,11 +396,7 @@ namespace YourGame.UI.Widgets
             _isDragging = false;
             OnDragEndEvent?.Invoke(this, eventData);
         }
-
-        // #######################################################################
-        // ## ÖFFENTLICHE SETTER-METHODEN FÜR BESSERE EXTERNE STEUERUNG ##
-        // #######################################################################
-
+        
         public void SetWidgetName(string newName)
         {
             widgetName = newName;
@@ -385,9 +407,6 @@ namespace YourGame.UI.Widgets
             animationDuration = duration;
         }
         
-        /// <summary>
-        /// Weist die primäre Grafik für visuelle Übergänge wie Color Tints von außen zu.
-        /// </summary>
         public void SetTargetGraphic(Graphic graphic)
         {
             this.targetGraphic = graphic;
@@ -397,16 +416,12 @@ namespace YourGame.UI.Widgets
             }
         }
 
-        /// <summary>
-        /// Löst die "Wobble"-Animation öffentlich aus.
-        /// </summary>
         public void TriggerWobble()
         {
             if (_wobbleCoroutine != null) StopCoroutine(_wobbleCoroutine);
             _wobbleCoroutine = StartCoroutine(AnimateWobble());
         }
 
-        // ** KORREKTUR: Fehlende Methoden wieder hinzugefügt **
         public void SetDeactivateOnHide(bool deactivate)
         {
             deactivateOnHide = deactivate;
@@ -419,25 +434,37 @@ namespace YourGame.UI.Widgets
 
         public void SetToggleKey(KeyCode key)
         {
-            // Deregistriere alte Taste, falls vorhanden
             if (toggleKey != KeyCode.None && UIInputHandler.Instance != null)
             {
                 UIInputHandler.Instance.UnregisterToggleKey(toggleKey, this);
             }
             
             toggleKey = key;
-            
-            // Registriere neue Taste, falls vorhanden
             if (toggleKey != KeyCode.None && UIInputHandler.Instance != null)
             {
                 UIInputHandler.Instance.RegisterToggleKey(toggleKey, this);
             }
         }
-        
-        // #######################################################################
-        // ## PRIVATE UND PROTECTED METHODEN (INTERNE LOGIK) ##
-        // #######################################################################
 
+        private void ApplyTheme()
+        {
+            _activeTheme = themeOverride;
+            if (_activeTheme == null && UIThemeManager.Instance != null)
+            {
+                _activeTheme = UIThemeManager.Instance.activeTheme;
+            }
+
+            if (_activeTheme != null && targetGraphic != null)
+            {
+                var textComponent = GetComponentInChildren<TMPro.TextMeshProUGUI>();
+                if (textComponent != null && _activeTheme.mainFont != null)
+                {
+                    textComponent.font = _activeTheme.mainFont;
+                    textComponent.color = _activeTheme.fontColor;
+                }
+            }
+        }
+        
         private IEnumerator AnimateWobble()
         {
             yield return TweenRotation(Quaternion.Euler(0, 0, 5), 0.05f, Easing.EaseType.EaseOutQuad);
@@ -504,26 +531,31 @@ namespace YourGame.UI.Widgets
 
         protected virtual void DoColorTransition(UIState state, bool instant)
         {
+            ColorTintBlock colors = (_activeTheme != null && _activeTheme.normalColor != null) ? _activeTheme.GetColorTintBlock() : this.colorTints;
+            
             if (targetGraphic == null || (transition & VisualTransition.ColorTint) == 0) return;
-            Color targetColor = colorTints.normalColor;
+
+            Color targetColor = colors.normalColor;
             if (state == UIState.Disabled)
             {
-                targetColor = colorTints.disabledColor;
+                targetColor = colors.disabledColor;
             }
             else if (state == UIState.Interactive)
             {
-                if (_isPressed) targetColor = colorTints.pressedColor;
-                else if (_isHovering) targetColor = colorTints.hoverColor;
+                if (_isPressed) targetColor = colors.pressedColor;
+                else if (_isHovering) targetColor = colors.hoverColor;
             }
 
             if (_colorFadeCoroutine != null) StopCoroutine(_colorFadeCoroutine);
-            if (instant || colorTints.fadeDuration <= 0)
+            
+            float duration = instant ? 0f : colors.fadeDuration;
+            if (duration <= 0f)
             {
                 targetGraphic.color = targetColor;
             }
             else
             {
-                _colorFadeCoroutine = StartCoroutine(FadeColor(targetColor, colorTints.fadeDuration));
+                _colorFadeCoroutine = StartCoroutine(FadeColor(targetColor, duration));
             }
         }
 
