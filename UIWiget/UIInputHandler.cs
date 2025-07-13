@@ -1,4 +1,4 @@
-// Dateiname: UIInputHandler.cs
+// Dateiname: UIInputHandler.cs (Korrigiert)
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
@@ -29,6 +29,8 @@ namespace YourGame.UI.Widgets
         private Dictionary<KeyCode, List<UIWidget>> _keyBindings = new Dictionary<KeyCode, List<UIWidget>>();
         private UIWidget _currentlyFocusedWidget;
         public UIWidget FocusedWidget => _currentlyFocusedWidget;
+
+        private bool _isInputFieldFocused = false;
 
         private void Awake()
         {
@@ -62,32 +64,32 @@ namespace YourGame.UI.Widgets
                 }
             }
             
-            // Logik für UI-Navigation mit dem fokussierten Widget
             if (_currentlyFocusedWidget != null)
             {
-                // Navigation
-                if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetAxis("Vertical") > 0.5f)
-                {
-                    if (_currentlyFocusedWidget.selectOnUp != null) SetFocus(_currentlyFocusedWidget.selectOnUp);
-                }
-                else if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetAxis("Vertical") < -0.5f)
-                {
-                    if (_currentlyFocusedWidget.selectOnDown != null) SetFocus(_currentlyFocusedWidget.selectOnDown);
-                }
-                else if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetAxis("Horizontal") < -0.5f)
-                {
-                    if (_currentlyFocusedWidget.selectOnLeft != null) SetFocus(_currentlyFocusedWidget.selectOnLeft);
-                }
-                else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetAxis("Horizontal") > 0.5f)
-                {
-                    if (_currentlyFocusedWidget.selectOnRight != null) SetFocus(_currentlyFocusedWidget.selectOnRight);
-                }
-                
-                // Bestätigungs-Aktion (Submit)
-                if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || Input.GetKeyDown(KeyCode.JoystickButton0))
+                if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
                 {
                     var pointerData = new PointerEventData(EventSystem.current);
                     _currentlyFocusedWidget.OnPointerClick(pointerData);
+                }
+
+                if (!_isInputFieldFocused)
+                {
+                    if (Input.GetKeyDown(KeyCode.UpArrow) && _currentlyFocusedWidget.selectOnUp != null)
+                    {
+                        SetFocus(_currentlyFocusedWidget.selectOnUp);
+                    }
+                    else if (Input.GetKeyDown(KeyCode.DownArrow) && _currentlyFocusedWidget.selectOnDown != null)
+                    {
+                        SetFocus(_currentlyFocusedWidget.selectOnDown);
+                    }
+                    else if (Input.GetKeyDown(KeyCode.LeftArrow) && _currentlyFocusedWidget.selectOnLeft != null)
+                    {
+                        SetFocus(_currentlyFocusedWidget.selectOnLeft);
+                    }
+                    else if (Input.GetKeyDown(KeyCode.RightArrow) && _currentlyFocusedWidget.selectOnRight != null)
+                    {
+                        SetFocus(_currentlyFocusedWidget.selectOnRight);
+                    }
                 }
             }
         }
@@ -128,10 +130,15 @@ namespace YourGame.UI.Widgets
             }
 
             _currentlyFocusedWidget = widget;
-            
+
             if (_currentlyFocusedWidget != null)
             {
                 _currentlyFocusedWidget.OnFocusGained();
+                _isInputFieldFocused = (_currentlyFocusedWidget is UIInputField);
+            }
+            else
+            {
+                _isInputFieldFocused = false;
             }
         }
     }

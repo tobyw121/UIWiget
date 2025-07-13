@@ -12,11 +12,9 @@ namespace YourGame.UI
         [SerializeField] private YourGame.UI.Widgets.UINotification _notificationPrefab;
         [SerializeField] private Transform _container; // Wo die Notifikationen erscheinen
         [SerializeField] private int _poolSize = 5;
-
         private Queue<YourGame.UI.Widgets.UINotification> _pooledNotifications = new Queue<YourGame.UI.Widgets.UINotification>();
         private Queue<KeyValuePair<string, string>> _messageQueue = new Queue<KeyValuePair<string, string>>();
         private bool _isShowingNotification = false;
-
         private void Awake()
         {
             if (Instance == null)
@@ -60,7 +58,6 @@ namespace YourGame.UI
                     notification.SetContent(messageData.Key, messageData.Value);
                     notification.gameObject.SetActive(true);
                     notification.Launch();
-
                     // Listener hinzufügen, um das Objekt nach dem Ausblenden wieder in den Pool zu legen
                     notification.OnHideComplete.AddListener(() => OnNotificationHidden(notification));
                 }
@@ -69,7 +66,8 @@ namespace YourGame.UI
 
         private void OnNotificationHidden(YourGame.UI.Widgets.UINotification notification)
         {
-            notification.OnHideComplete.RemoveAllListeners(); // Wichtig, um Memory Leaks zu vermeiden
+            notification.OnHideComplete.RemoveAllListeners();
+            // Wichtig, um Memory Leaks zu vermeiden
             notification.gameObject.SetActive(false);
             _pooledNotifications.Enqueue(notification);
             _isShowingNotification = false;

@@ -1,4 +1,4 @@
-// Dateiname: UIDropTarget.cs (Korrigiert)
+// File name: UIDropTarget.cs (Corrected)
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -9,7 +9,6 @@ namespace YourGame.UI.Widgets
     {
         public UnityEvent<UIDraggable> OnItemDropped;
 
-        // KORREKTUR: Wir fügen eine Awake-Methode hinzu, um das Event zu initialisieren.
         protected override void Awake()
         {
             base.Awake();
@@ -17,21 +16,20 @@ namespace YourGame.UI.Widgets
             {
                 OnItemDropped = new UnityEvent<UIDraggable>();
             }
+            IsDropTarget = true; // Set the widget as a drop target
         }
 
         public void OnDrop(PointerEventData eventData)
         {
+            if (CurrentState != UIState.Interactive) return; // Only allow drop if interactive
+
             if (eventData.pointerDrag != null)
             {
                 var draggable = eventData.pointerDrag.GetComponent<UIDraggable>();
                 if (draggable != null)
                 {
-                    // Das Event wird hier sicher aufgerufen
                     OnItemDropped?.Invoke(draggable);
-                    
-                    // Die Logik, das Item zum Kind zu machen, sollte vom Listener gesteuert werden,
-                    // nicht vom DropTarget selbst, um es flexibler zu machen.
-                    // Beispiel: draggable.transform.SetParent(transform, true);
+                    draggable.MarkDropSuccessful(); // Inform the draggable that the drop was successful
                 }
             }
         }

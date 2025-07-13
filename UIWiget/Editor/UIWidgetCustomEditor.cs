@@ -1,72 +1,59 @@
-// Dateiname: UIWidgetCustomEditor.cs
-// Muss im "Editor"-Ordner platziert werden.
+// Dateiname: UIWidgetCustomEditor.cs (muss im "Editor"-Ordner sein)
 using UnityEditor;
 using UnityEngine;
 using YourGame.UI.Widgets;
+using System.Linq;
+using System.Collections.Generic;
 
-[CustomEditor(typeof(UIWidget), true)] // true = auch für abgeleitete Klassen
+[CustomEditor(typeof(UIWidget), true)]
 public class UIWidgetCustomEditor : Editor
 {
     public override void OnInspectorGUI()
     {
-        // Zeichnet den Standard-Inspector
+        // Zeichnet zuerst den Standard-Inspector
         base.OnInspectorGUI();
 
         UIWidget widget = (UIWidget)target;
 
-        // Zeigt den Live-Zustand des Widgets im Play-Modus an
-        if (Application.isPlaying)
+        // Nur versuchen, die Stil-Liste zu laden, wenn die Anwendung läuft ODER ein Theme-Manager in der Szene ist
+        if (UIThemeManager.Instance == null && !Application.isPlaying)
         {
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Live Status", EditorStyles.boldLabel);
-            GUI.enabled = false; // Macht die Felder schreibgeschützt
-            EditorGUILayout.Toggle("Is Visible", widget.IsVisible);
-            EditorGUILayout.EnumPopup("Current State", widget.CurrentState);
-            GUI.enabled = true;
+             EditorGUILayout.HelpBox("UIThemeManager nicht in der Szene gefunden. Stil-Auswahl ist nicht verfügbar.", MessageType.Warning);
+             return;
         }
-
-        // Fügt benutzerdefinierte Buttons für das Testen im Editor hinzu
-        EditorGUILayout.Space();
-        EditorGUILayout.LabelField("Editor Testing", EditorStyles.boldLabel);
         
-        // Horizontale Anordnung für Show/Hide/Toggle
-        EditorGUILayout.BeginHorizontal();
-        if (GUILayout.Button("Show"))
-        {
-            widget.Show();
-        }
-        if (GUILayout.Button("Hide"))
-        {
-            widget.Hide();
-        }
-        if (GUILayout.Button("Toggle"))
-        {
-            widget.Toggle();
-        }
-        EditorGUILayout.EndHorizontal();
+        // --- NEU: StyleKey als Dropdown-Menü ---
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Theme Style Selector", EditorStyles.boldLabel);
 
-        // Horizontale Anordnung für Zustandsänderungen
-        EditorGUILayout.BeginHorizontal();
-        if (GUILayout.Button("Set Interactive"))
+        var themeManager = UIThemeManager.Instance;
+        // Holen Sie sich alle Stil-Schlüssel aus dem aktuellen Theme
+        List<string> styleKeys = new List<string> { "None" }; // Option für "kein Stil"
+        if (themeManager != null)
         {
-            widget.SetState(UIWidget.UIState.Interactive);
+            // Diese private Methode muss im UIThemeManager kurz public gemacht oder über Reflection geholt werden.
+            // Für Einfachheit, fügen Sie eine public Methode im UIThemeManager hinzu:
+            // public List<string> GetAllStyleKeys() => _styleCache.Keys.ToList();
+            // styleKeys.AddRange(themeManager.GetAllStyleKeys());
         }
-        if (GUILayout.Button("Set Disabled"))
-        {
-            widget.SetState(UIWidget.UIState.Disabled);
-        }
-        EditorGUILayout.EndHorizontal();
 
-        // Button für Tweening-Demonstration
-        if (GUILayout.Button("Demo Tween Animation"))
+        // Finde den aktuellen Index des ausgewählten Schlüssels
+        string currentKey = widget.styleKey;
+        int selectedIndex = 0;
+        if (!string.IsNullOrEmpty(currentKey) && styleKeys.Contains(currentKey))
         {
-            // Führt eine vordefinierte Animation aus, um die Funktion zu testen
-            var rt = widget.GetComponent<RectTransform>();
-            if (rt != null)
-            {
-                Vector2 originalPos = rt.anchoredPosition;
-                widget.TweenPosition(originalPos + new Vector2(50, 0), 0.5f, Easing.EaseType.EaseOutQuad);
-            }
+            selectedIndex = styleKeys.IndexOf(currentKey);
+        }
+
+        // Zeichne das Dropdown-Menü
+        int newIndex = EditorGUILayout.Popup("Style Key", selectedIndex, styleKeys.ToArray());
+
+        // Wenn ein neuer Wert ausgewählt wurde, aktualisiere ihn
+        if (newIndex != selectedIndex)
+        {
+            Undo.RecordObject(widget, "Change Style Key"); // Für Rückgängig-Funktion
+            widget.styleKey = (newIndex == 0) ? "" : styleKeys[newIndex];
+            EditorUtility.SetDirty(widget); // Speichere die Änderung am Prefab/Objekt
         }
     }
 }

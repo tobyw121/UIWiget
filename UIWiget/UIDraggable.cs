@@ -1,4 +1,4 @@
-// Dateiname: UIDraggable.cs
+// File name: UIDraggable.cs
 using UnityEngine;
 using UnityEngine.EventSystems;
 
@@ -9,43 +9,72 @@ namespace YourGame.UI.Widgets
         private Vector2 _offset;
         private Transform _originalParent;
         private Canvas _rootCanvas;
+        private bool _droppedSuccessfully = false; // Flag for successful drop
 
         protected override void Awake()
         {
             base.Awake();
             _rootCanvas = GetComponentInParent<Canvas>();
+            IsDraggable = true; // Set the widget as draggable
         }
 
         public override void OnBeginDrag(PointerEventData eventData)
         {
             base.OnBeginDrag(eventData);
-            _originalParent = transform.parent;
-            // Verschiebe das Objekt auf die oberste Ebene des Canvas, damit es über allem gerendert wird
-            transform.SetParent(_rootCanvas.transform, true);
-            
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_rectTransform, eventData.position, eventData.pressEventCamera, out _offset);
-            _canvasGroup.blocksRaycasts = false; // Erlaube Raycasts, das DropTarget unter dem Mauszeiger zu treffen
+            if (CurrentState == UIState.Interactive) // Only draggable if interactive
+            {
+                _originalParent = transform.parent;
+                // Move the object to the top level of the Canvas so it renders above everything
+                transform.SetParent(_rootCanvas.transform, true);
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(_rectTransform, eventData.position, eventData.pressEventCamera, out _offset);
+                _canvasGroup.blocksRaycasts = false; // Allow raycasts to hit the DropTarget under the pointer
+                _droppedSuccessfully = false; // Reset at the start of the drag
+            }
         }
 
         public override void OnDrag(PointerEventData eventData)
         {
             base.OnDrag(eventData);
-            _rectTransform.anchoredPosition = eventData.position / _rootCanvas.scaleFactor - _offset;
+            if (CurrentState == UIState.Interactive) // Only draggable if interactive
+            {
+                _rectTransform.anchoredPosition = eventData.position / _rootCanvas.scaleFactor - _offset;
+            }
         }
 
         public override void OnEndDrag(PointerEventData eventData)
         {
             base.OnEndDrag(eventData);
-            _canvasGroup.blocksRaycasts = true;
-
-            // Wenn es kein gültiges DropTarget gab, kehre zur ursprünglichen Position zurück.
-            // UIDropTarget wird das Parenting selbst übernehmen, wenn der Drop erfolgreich war.
-            if (transform.parent == _rootCanvas.transform)
+            if (CurrentState == UIState.Interactive) // Only draggable if interactive
             {
-                transform.SetParent(_originalParent, true);
-                // Optional: Tweene zurück zur Startposition
-                TweenPosition(Vector2.zero, 0.1f, Easing.EaseType.EaseOutQuad);
+                _canvasGroup.blocksRaycasts = true;
+
+                // Check if a valid DropTarget was hit
+                if (eventData.pointerCurrentRaycast.gameObject != null)
+                {
+                    UIDropTarget dropTarget = eventData.pointerCurrentRaycast.gameObject.GetComponentInParent<UIDropTarget>();
+                    if (dropTarget != null && dropTarget.IsDropTarget && dropTarget.CurrentState == UIState.Interactive)
+                    {
+                        // The OnDrop handler of the DropTarget will handle parenting.
+                        _droppedSuccessfully = true;
+                    }
+                }
+
+                // If no valid DropTarget accepted the drop, revert to the original position.
+                // We check _droppedSuccessfully because the DropTarget will handle SetParent.
+                if (!_droppedSuccessfully)
+                {
+                    transform.SetParent(_originalParent, true);
+                    // Optional: Tween back to the start position
+                    TweenPosition(_originalPosition, 0.1f, Easing.EaseType.EaseOutQuad);
+                    OnDragCancelled?.Invoke(); // Trigger event if drag is cancelled
+                }
             }
+        }
+        
+        // NEW: Method to mark the drop as successful
+        public void MarkDropSuccessful()
+        {
+            _droppedSuccessfully = true;
         }
     }
 }

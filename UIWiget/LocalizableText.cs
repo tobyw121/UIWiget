@@ -1,6 +1,7 @@
 using UnityEngine;
 using TMPro;
 using UnityEngine.UI; // Für die alte Text-Komponente
+using YourGame.UI;
 
 public class LocalizableText : MonoBehaviour
 {

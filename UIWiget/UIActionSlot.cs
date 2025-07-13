@@ -1,4 +1,3 @@
-// Dateiname: UIActionSlot.cs
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -14,36 +13,17 @@ namespace YourGame.UI.Widgets
         [SerializeField] public KeyCode ActivationKey = KeyCode.None;
 
         private Coroutine _cooldownCoroutine;
-        
+
         protected override void Awake()
         {
             base.Awake();
+            
             if (ActivationKey != KeyCode.None && UIInputHandler.Instance != null)
             {
                 UIInputHandler.Instance.RegisterToggleKey(ActivationKey, this);
             }
             
             OnClickEvent.AddListener((widget, data) => TriggerAction());
-            
-            // NEU: Listener für das Drop-Event hinzufügen, um Items zuzuweisen.
-            OnItemDropped.AddListener(AssignItemFromDrag);
-        }
-
-        // NEU: Diese Methode wird aufgerufen, wenn ein UIDraggable auf diesen Slot gezogen wird.
-        private void AssignItemFromDrag(UIDraggable draggable)
-        {
-            if (draggable == null) return;
-
-            // Prüfen, ob die UserData ein ItemData-Objekt sind.
-            if (draggable.UserData is ItemData itemData)
-            {
-                Debug.Log($"Item '{itemData.itemName}' wurde auf Slot '{name}' gezogen. Weise Icon zu.");
-                Assign(itemData.icon);
-                
-                // Das UserData-Feld des Slots selbst wird ebenfalls gesetzt,
-                // um zu wissen, welche Aktion dieser Slot nun repräsentiert.
-                this.UserData = itemData;
-            }
         }
         
         public void Initialize()
