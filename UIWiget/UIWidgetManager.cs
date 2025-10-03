@@ -4,14 +4,17 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using YourGame.UI.Widgets.Cursors;
 
 namespace YourGame.UI.Widgets
 {
     public class UIWidgetManager : MonoBehaviour
     {
         private static UIWidgetManager _instance;
-        private static readonly object _lock = new object();
-        private static bool _isShuttingDown = false;
+        private static bool _isShuttingDown;
+
+        [SerializeField] private CursorDescriptor defaultCursorDescriptor = CursorDescriptor.FromId("Arrow");
+        [SerializeField] private CursorDescriptor loadingCursorDescriptor = CursorDescriptor.FromId("Loading");
 
         public static UIWidgetManager Instance
         {
@@ -19,32 +22,47 @@ namespace YourGame.UI.Widgets
             {
                 if (_isShuttingDown)
                 {
-                    Debug.LogWarning("[UIWidgetManager] Instance called during application quit. Returning null.");
+                    Debug.LogWarning("[UIWidgetManager] Instance requested while shutting down. Returning null.");
                     return null;
                 }
 
-                lock (_lock)
+                if (_instance == null)
                 {
+                    _instance = LocateExistingManager();
                     if (_instance == null)
                     {
-                        _instance = FindObjectOfType<UIWidgetManager>();
-                        if (_instance == null)
-                        {
-                            GameObject managerGO = new GameObject("UIWidgetManager_AutoCreated");
-                            _instance = managerGO.AddComponent<UIWidgetManager>();
-                        }
+                        GameObject managerGO = new GameObject("UIWidgetManager_AutoCreated");
+                        _instance = managerGO.AddComponent<UIWidgetManager>();
                     }
-                    return _instance;
                 }
+
+                return _instance;
             }
         }
 
+        public static event Action<CursorDescriptor> OnCursorChanged;
+
         private readonly Dictionary<string, List<UIWidget>> _widgetCache = new Dictionary<string, List<UIWidget>>();
-        
-        // Event für Cursor-Änderungen
-        public static event Action<string> OnCursorChanged;
-        private static string _currentCursorName = "Arrow";
-        private static bool _isExclusiveCursorActive = false;
+        private CursorDescriptor _currentCursor;
+        private bool _isExclusiveCursorActive;
+        private ICursorProvider _cursorProvider;
+
+        public ICursorProvider CursorProvider
+        {
+            get
+            {
+                if (_cursorProvider == null)
+                {
+                    _cursorProvider = new EventCursorProvider(defaultCursorDescriptor, loadingCursorDescriptor);
+                }
+
+                return _cursorProvider;
+            }
+            set
+            {
+                _cursorProvider = value ?? new EventCursorProvider(defaultCursorDescriptor, loadingCursorDescriptor);
+            }
+        }
 
         private void Awake()
         {
@@ -53,16 +71,18 @@ namespace YourGame.UI.Widgets
                 Destroy(gameObject);
                 return;
             }
+
             _instance = this;
-            _isShuttingDown = false; // Wichtig für Szenen-Neuladen
+            _isShuttingDown = false;
             DontDestroyOnLoad(gameObject);
+            _currentCursor = defaultCursorDescriptor;
         }
 
         private void OnEnable()
         {
             SceneManager.sceneLoaded += OnSceneLoaded;
             SceneManager.sceneUnloaded += OnSceneUnloaded;
-            PopulateWidgetCache();
+            RefreshCache();
         }
 
         private void OnDisable()
@@ -71,22 +91,29 @@ namespace YourGame.UI.Widgets
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
             _widgetCache.Clear();
         }
-        
+
         private void OnApplicationQuit()
         {
             _isShuttingDown = true;
         }
 
+        private static UIWidgetManager LocateExistingManager()
+        {
+            var managers = Resources.FindObjectsOfTypeAll<UIWidgetManager>();
+            return managers.FirstOrDefault(m => m != null && m.hideFlags == HideFlags.None && m.gameObject.scene.IsValid());
+        }
+
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
-            PopulateWidgetCache();
+            RegisterSceneWidgets(scene);
         }
 
         private void OnSceneUnloaded(Scene scene)
         {
-            var widgetsToRemove = _widgetCache.SelectMany(kv => kv.Value)
-                                              .Where(w => w != null && w.gameObject.scene == scene)
-                                              .ToList();
+            var widgetsToRemove = _widgetCache
+                .SelectMany(kv => kv.Value)
+                .Where(w => w != null && w.gameObject.scene == scene)
+                .ToList();
 
             foreach (var widget in widgetsToRemove)
             {
@@ -94,16 +121,53 @@ namespace YourGame.UI.Widgets
             }
         }
 
-        private void PopulateWidgetCache()
+        private void RefreshCache()
         {
-            _widgetCache.Clear();
-            var allWidgetsInLoadedScenes = FindObjectsOfType<UIWidget>(true);
-            foreach (var widget in allWidgetsInLoadedScenes)
+            foreach (var key in _widgetCache.Keys.ToList())
             {
-                if (widget.gameObject.scene.isLoaded)
+                _widgetCache[key].RemoveAll(widget => widget == null);
+                if (_widgetCache[key].Count == 0)
+                {
+                    _widgetCache.Remove(key);
+                }
+            }
+
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var scene = SceneManager.GetSceneAt(i);
+                if (scene.isLoaded)
+                {
+                    RegisterSceneWidgets(scene);
+                }
+            }
+
+            RegisterPersistentWidgets();
+        }
+
+        private void RegisterSceneWidgets(Scene scene)
+        {
+            if (!scene.IsValid() || !scene.isLoaded)
+            {
+                return;
+            }
+
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                foreach (var widget in root.GetComponentsInChildren<UIWidget>(true))
                 {
                     RegisterWidget(widget);
                 }
+            }
+        }
+
+        private void RegisterPersistentWidgets()
+        {
+            var persistentWidgets = Resources.FindObjectsOfTypeAll<UIWidget>()
+                .Where(widget => widget != null && widget.hideFlags == HideFlags.None && widget.gameObject.scene.name == "DontDestroyOnLoad");
+
+            foreach (var widget in persistentWidgets)
+            {
+                RegisterWidget(widget);
             }
         }
 
@@ -113,23 +177,30 @@ namespace YourGame.UI.Widgets
             {
                 return;
             }
-            if (!_widgetCache.ContainsKey(widget.Name))
+
+            if (!_widgetCache.TryGetValue(widget.Name, out var widgets))
             {
-                _widgetCache[widget.Name] = new List<UIWidget>();
+                widgets = new List<UIWidget>();
+                _widgetCache[widget.Name] = widgets;
             }
-            if (!_widgetCache[widget.Name].Contains(widget))
+
+            if (!widgets.Contains(widget))
             {
-                _widgetCache[widget.Name].Add(widget);
+                widgets.Add(widget);
             }
         }
 
         public void UnregisterWidget(UIWidget widget)
         {
-            if (widget == null || string.IsNullOrEmpty(widget.Name)) return;
-            if (_widgetCache.ContainsKey(widget.Name))
+            if (widget == null || string.IsNullOrEmpty(widget.Name))
             {
-                _widgetCache[widget.Name].Remove(widget);
-                if (_widgetCache[widget.Name].Count == 0)
+                return;
+            }
+
+            if (_widgetCache.TryGetValue(widget.Name, out var widgets))
+            {
+                widgets.Remove(widget);
+                if (widgets.Count == 0)
                 {
                     _widgetCache.Remove(widget.Name);
                 }
@@ -142,22 +213,24 @@ namespace YourGame.UI.Widgets
             {
                 return widgets.OfType<T>().FirstOrDefault();
             }
+
             return null;
         }
 
         public static List<T> FindAll<T>() where T : UIWidget
         {
-            List<T> allOfType = new List<T>();
+            var result = new List<T>();
             if (Instance != null)
             {
-                 foreach (var list in Instance._widgetCache.Values)
+                foreach (var list in Instance._widgetCache.Values)
                 {
-                    allOfType.AddRange(list.OfType<T>());
+                    result.AddRange(list.OfType<T>());
                 }
             }
-            return allOfType.Distinct().ToList();
+
+            return result.Distinct().ToList();
         }
-        
+
         public static void SetExclusive(UIWidget widget, Color maskColor)
         {
             if (Instance == null) return;
@@ -171,25 +244,42 @@ namespace YourGame.UI.Widgets
             Debug.Log($"[UIWidgetManager] Exclusive status removed for widget '{widget?.Name}'.");
             UIOverlayManager.Instance.DeactivateExclusiveOverlay();
         }
-        
-        public static void SetDefaultCursor(string cursorName = "Arrow")
+
+        public static void SetDefaultCursor(string cursorId)
         {
-            if (_isExclusiveCursorActive) return;
-            _currentCursorName = cursorName;
-            OnCursorChanged?.Invoke(_currentCursorName);
+            SetDefaultCursor(CursorDescriptor.FromId(cursorId));
+        }
+
+        public static void SetDefaultCursor(CursorDescriptor descriptor = null)
+        {
+            if (Instance == null) return;
+            if (Instance._isExclusiveCursorActive) return;
+
+            Instance._currentCursor = descriptor ?? Instance.CursorProvider.DefaultCursor;
+            Instance.ApplyCursor(Instance._currentCursor);
         }
 
         public static void SetExclusiveLoadingGear(bool status)
         {
-            _isExclusiveCursorActive = status;
+            if (Instance == null) return;
+
+            Instance._isExclusiveCursorActive = status;
             if (status)
             {
-                OnCursorChanged?.Invoke("Loading");
+                Instance.ApplyCursor(Instance.CursorProvider.LoadingCursor);
             }
             else
             {
-                OnCursorChanged?.Invoke(_currentCursorName);
+                var fallback = Instance._currentCursor ?? Instance.CursorProvider.DefaultCursor;
+                Instance.ApplyCursor(fallback);
             }
+        }
+
+        private void ApplyCursor(CursorDescriptor descriptor)
+        {
+            var provider = CursorProvider;
+            provider.ApplyCursor(descriptor);
+            OnCursorChanged?.Invoke(descriptor ?? provider.DefaultCursor);
         }
     }
 }
